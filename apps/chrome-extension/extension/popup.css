@@ -1,0 +1,6 @@
+body { margin: 0; min-width: 320px; font: 14px system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+main { padding: 16px; display: grid; gap: 12px; }
+h1 { margin: 0; font-size: 20px; }
+label { display: grid; gap: 4px; }
+input { border-radius: 8px; border: 1px solid #334155; padding: 8px; background: #111827; color: #f8fafc; }
+button { border: 0; border-radius: 8px; padding: 9px 12px; background: #2563eb; color: white; font-weight: 600; }

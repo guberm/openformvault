@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/apps/" />
+  <Folder Name="/apps/server/" />
+  <Folder Name="/apps/server/src/">
+    <Project Path="apps/server/src/OpenFormVault.Server/OpenFormVault.Server.csproj" />
+  </Folder>
+  <Folder Name="/packages/" />
+  <Folder Name="/packages/contracts/" />
+  <Folder Name="/packages/contracts/src/">
+    <Project Path="packages/contracts/src/OpenFormVault.Contracts/OpenFormVault.Contracts.csproj" />
+  </Folder>
+  <Folder Name="/packages/sync-core/" />
+  <Folder Name="/packages/sync-core/src/">
+    <Project Path="packages/sync-core/src/OpenFormVault.Sync.Core/OpenFormVault.Sync.Core.csproj" />
+  </Folder>
+  <Folder Name="/packages/sync-core/test/">
+    <Project Path="packages/sync-core/test/OpenFormVault.Sync.Core.Tests/OpenFormVault.Sync.Core.Tests.csproj" />
+  </Folder>
+</Solution>

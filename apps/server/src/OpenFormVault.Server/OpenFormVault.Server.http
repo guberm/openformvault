@@ -1,0 +1,6 @@
+@OpenFormVault.Server_HostAddress = http://localhost:5104
+
+GET {{OpenFormVault.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

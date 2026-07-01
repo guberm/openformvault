@@ -1,0 +1,16 @@
+<!doctype html>
+<html>
+<head><meta charset="utf-8"><title>OpenFormVault</title><link rel="stylesheet" href="popup.css"></head>
+<body>
+  <main>
+    <h1>OpenFormVault</h1>
+    <p id="status">Locked. Connect to your server and unlock your local vault.</p>
+    <label>Server URL <input id="server-url" type="url" placeholder="https://openformvault.example"></label>
+    <label>Username <input id="username" type="text" autocomplete="username"></label>
+    <label>Master password <input id="password" type="password" autocomplete="current-password"></label>
+    <button id="unlock">Unlock</button>
+    <button id="sync-now">Sync now</button>
+  </main>
+  <script src="popup.js" type="module"></script>
+</body>
+</html>

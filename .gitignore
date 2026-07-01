@@ -1,0 +1,31 @@
+# Build output
+bin/
+obj/
+.vs/
+TestResults/
+coverage/
+artifacts/
+dist/
+release/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Android/Gradle
+.gradle/
+build/
+**/build/
+local.properties
+*.apk
+*.aab
+
+# Secrets/runtime
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+*.log
+.DS_Store
