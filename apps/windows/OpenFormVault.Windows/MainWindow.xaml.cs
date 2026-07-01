@@ -63,7 +63,7 @@ public sealed partial class MainWindow : Window
 
     private ScrollViewer BuildContent()
     {
-        var root = new StackPanel { Margin = new Thickness(32), Spacing = 14 };
+        var root = new StackPanel { Margin = new Thickness(32), Spacing = 14, MaxWidth = 720, HorizontalAlignment = HorizontalAlignment.Left };
         root.Children.Add(new TextBlock { Text = "OpenFormVault", FontSize = 32, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         root.Children.Add(new TextBlock { Text = "Your private password vault for logins, passkeys, authenticator codes, and secure notes.", TextWrapping = TextWrapping.Wrap, Opacity = 0.78 });
         root.Children.Add(_statusText);

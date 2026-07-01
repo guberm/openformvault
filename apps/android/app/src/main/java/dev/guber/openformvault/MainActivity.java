@@ -3,6 +3,7 @@ package dev.guber.openformvault;
 import android.app.Activity;
 import android.os.Bundle;
 import android.text.InputType;
+import android.graphics.Color;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -78,11 +79,15 @@ public class MainActivity extends Activity {
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(32, 48, 32, 32);
+        root.setBackgroundColor(Color.rgb(247, 248, 251));
         scroll.addView(root);
 
-        TextView title = label("OpenFormVault", 28);
-        TextView subtitle = label("Your private password vault for logins, passkeys, authenticator codes, and secure notes.", 16);
+        TextView title = label("OpenFormVault", 24);
+        TextView subtitle = label("Your private password vault for logins, passkeys, authenticator codes, and secure notes.", 15);
+        title.setTextColor(Color.rgb(17, 24, 39));
+        subtitle.setTextColor(Color.rgb(107, 114, 128));
         status = label("Starting…", 15);
+        status.setTextColor(Color.rgb(71, 85, 105));
         serverUrlInput = input("Server URL");
         usernameInput = input("Username");
         passwordInput = input("Master password");
@@ -213,6 +218,13 @@ public class MainActivity extends Activity {
         Button button = new Button(this);
         button.setText(text);
         button.setOnClickListener(listener);
+        if ("Log in".equals(text) || "+ Add login".equals(text) || "Save".equals(text) || "Create account".equals(text)) {
+            button.setTextColor(Color.WHITE);
+            button.setBackgroundColor(Color.rgb(37, 99, 235));
+        } else {
+            button.setTextColor(Color.rgb(31, 41, 55));
+            button.setBackgroundColor(Color.rgb(229, 231, 235));
+        }
         return button;
     }
 
