@@ -11,4 +11,8 @@
     <ProjectReference Include="..\..\..\..\packages\sync-core\src\OpenFormVault.Sync.Core\OpenFormVault.Sync.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Npgsql" Version="9.0.3" />
+  </ItemGroup>
+
 </Project>

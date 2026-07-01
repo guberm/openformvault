@@ -1,15 +1,88 @@
 <!doctype html>
 <html>
-<head><meta charset="utf-8"><title>OpenFormVault</title><link rel="stylesheet" href="popup.css"></head>
+<head>
+  <meta charset="utf-8">
+  <title>OpenFormVault</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
 <body>
   <main>
-    <h1>OpenFormVault</h1>
-    <p id="status">Locked. Connect to your server and unlock your local vault.</p>
-    <label>Server URL <input id="server-url" type="url" placeholder="https://openformvault.example"></label>
-    <label>Username <input id="username" type="text" autocomplete="username"></label>
-    <label>Master password <input id="password" type="password" autocomplete="current-password"></label>
-    <button id="unlock">Unlock</button>
-    <button id="sync-now">Sync now</button>
+    <header class="app-header">
+      <div>
+        <h1>OpenFormVault</h1>
+        <p id="status">Locked.</p>
+      </div>
+      <span class="sync-pill" id="sync-state">offline</span>
+    </header>
+
+    <section id="auth" class="card">
+      <label>Server URL <input id="server-url" type="url" value="https://openformvault.guber.dev"></label>
+      <label>Username <input id="username" type="text" autocomplete="username"></label>
+      <label>Master password <input id="password" type="password" autocomplete="current-password"></label>
+      <div class="row">
+        <button id="register">Create account</button>
+        <button id="login">Log in</button>
+        <button id="health-check" class="secondary">Test server</button>
+      </div>
+    </section>
+
+    <section id="vault" hidden>
+      <section class="card toolbar">
+        <div>
+          <strong>Vault</strong>
+          <small id="revision-label">Revision 0</small>
+        </div>
+        <div class="row compact">
+          <button id="sync-pull" class="secondary">Pull</button>
+          <button id="sync-push" class="secondary">Push</button>
+          <button id="lock" class="secondary">Lock</button>
+        </div>
+      </section>
+
+      <section id="detected-login" class="card" hidden>
+        <h2>Detected login</h2>
+        <p class="hint" id="detected-login-text"></p>
+        <div class="row">
+          <button id="save-detected-login">Save detected login</button>
+          <button id="dismiss-detected-login" class="secondary">Dismiss</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 id="form-title">Add login</h2>
+        <input id="editing-id" type="hidden">
+        <label>Title <input id="item-title" type="text" placeholder="Example"></label>
+        <label>URL <input id="item-url" type="url" placeholder="https://example.com"></label>
+        <label>Username <input id="item-username" type="text" autocomplete="username"></label>
+        <label>Password <input id="item-password" type="password" autocomplete="new-password"></label>
+        <label>OTP/TOTP secret <input id="item-otp-secret" type="text" placeholder="Base32 secret, optional" autocomplete="off"></label>
+        <label>Passkey RP ID <input id="item-passkey-rp-id" type="text" placeholder="example.com, optional"></label>
+        <label>Passkey credential ID <input id="item-passkey-credential-id" type="text" placeholder="Base64URL credential id, optional"></label>
+        <label>Notes <textarea id="item-notes" placeholder="Local encrypted notes"></textarea></label>
+        <div class="row">
+          <button id="save-login">Save and sync</button>
+          <button id="cancel-edit" class="secondary" hidden>Cancel edit</button>
+          <button id="generate-password" class="secondary">Generate password</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Import from RoboForm/CSV</h2>
+        <p class="hint">Paste a RoboForm CSV export or choose a CSV file. Import is local first, then auto-syncs encrypted vault data.</p>
+        <input id="import-file" type="file" accept=".csv,text/csv,text/plain">
+        <textarea id="import-text" placeholder="CSV with columns like Name, Url/MatchUrl, Login, Pwd/Password, Note, Folder, RfFieldsV2, TOTP"></textarea>
+        <div class="row">
+          <button id="import-preview" class="secondary">Preview import</button>
+          <button id="import-commit">Import and sync</button>
+        </div>
+        <pre id="import-result"></pre>
+      </section>
+
+      <section class="card">
+        <h2>Logins</h2>
+        <div id="items"></div>
+      </section>
+    </section>
   </main>
   <script src="popup.js" type="module"></script>
 </body>

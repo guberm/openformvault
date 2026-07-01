@@ -5,7 +5,7 @@
   "description": "Local-first zero-knowledge password vault and form filler.",
   "action": { "default_popup": "popup.html" },
   "permissions": ["storage", "alarms", "activeTab", "scripting"],
-  "host_permissions": [],
+  "host_permissions": ["https://openformvault.guber.dev/*"],
   "background": { "service_worker": "service-worker.js", "type": "module" },
   "content_scripts": [{ "matches": ["https://*/*", "http://*/*"], "js": ["content-script.js"], "run_at": "document_idle" }]
 }

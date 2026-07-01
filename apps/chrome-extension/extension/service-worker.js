@@ -9,6 +9,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ ok: true });
       return;
     }
+    if (message?.type === 'OFV_SAVE_CANDIDATE') {
+      const candidate = {
+        ...(message.candidate || {}),
+        tabUrl: sender.tab?.url || '',
+        tabTitle: sender.tab?.title || '',
+        storedAt: new Date().toISOString()
+      };
+      await chrome.storage.local.set({ pendingSaveCandidate: candidate });
+      sendResponse({ ok: true });
+      return;
+    }
     sendResponse({ ok: false, error: 'unknown_message' });
   })();
   return true;
