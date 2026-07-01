@@ -81,15 +81,11 @@ public sealed partial class MainWindow : Window
         root.Children.Add(_urlBox);
         root.Children.Add(_loginUsernameBox);
         root.Children.Add(_loginPasswordBox);
-        root.Children.Add(new Expander
-        {
-            Header = "More fields",
-            Content = new StackPanel
-            {
-                Spacing = 8,
-                Children = { _otpSecretBox, _passkeyRpIdBox, _passkeyCredentialIdBox, _notesBox }
-            }
-        });
+        root.Children.Add(new TextBlock { Text = "More fields", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Opacity = 0.78 });
+        root.Children.Add(_otpSecretBox);
+        root.Children.Add(_passkeyRpIdBox);
+        root.Children.Add(_passkeyCredentialIdBox);
+        root.Children.Add(_notesBox);
         root.Children.Add(Button("Save and sync", SaveLogin));
 
         root.Children.Add(Section("Settings"));
@@ -97,18 +93,14 @@ public sealed partial class MainWindow : Window
         syncButtons.Children.Add(Button("Test connection", async () => await RunAsync(CheckServerHealthAsync)));
         syncButtons.Children.Add(Button("Sync now", async () => await RunAsync(PullAsync)));
         syncButtons.Children.Add(Button("Force upload", async () => await RunAsync(PushAsync)));
+        root.Children.Add(_serverBox);
+        root.Children.Add(syncButtons);
+        root.Children.Add(new TextBlock { Text = "Import from RoboForm / CSV", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Opacity = 0.78 });
+        root.Children.Add(_importBox);
         var importButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         importButtons.Children.Add(Button("Preview import", PreviewImport));
         importButtons.Children.Add(Button("Import and sync", ImportCsv));
-        root.Children.Add(new Expander
-        {
-            Header = "Advanced and import",
-            Content = new StackPanel
-            {
-                Spacing = 8,
-                Children = { _serverBox, syncButtons, _importBox, importButtons }
-            }
-        });
+        root.Children.Add(importButtons);
         return new ScrollViewer { Content = root };
     }
 
