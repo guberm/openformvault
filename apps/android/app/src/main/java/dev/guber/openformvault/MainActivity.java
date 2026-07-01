@@ -50,6 +50,10 @@ public class MainActivity extends Activity {
     private EditText passkeyRpIdInput;
     private EditText passkeyCredentialIdInput;
     private LinearLayout list;
+    private LinearLayout authGroup;
+    private LinearLayout vaultGroup;
+    private LinearLayout formGroup;
+    private LinearLayout settingsGroup;
 
     private String token = "";
     private String masterPassword = "";
@@ -87,19 +91,30 @@ public class MainActivity extends Activity {
         root.addView(title);
         root.addView(subtitle);
         root.addView(status);
-        root.addView(label("Sign in", 20));
-        root.addView(usernameInput);
-        root.addView(passwordInput);
-        root.addView(button("Log in", v -> authenticate(false)));
-        root.addView(button("Create account", v -> authenticate(true)));
-        root.addView(button("Lock", v -> { masterPassword = ""; token = ""; items.clear(); renderItems(); setStatus("Locked."); }));
 
-        root.addView(label("Vault", 20));
+        authGroup = group();
+        authGroup.addView(label("Sign in", 20));
+        authGroup.addView(usernameInput);
+        authGroup.addView(passwordInput);
+        authGroup.addView(button("Log in", v -> authenticate(false)));
+        authGroup.addView(button("Create account", v -> authenticate(true)));
+        root.addView(authGroup);
+
+        vaultGroup = group();
+        vaultGroup.addView(label("Vault", 20));
+        LinearLayout vaultActions = group();
+        vaultActions.setOrientation(LinearLayout.HORIZONTAL);
+        vaultActions.addView(button("+ Add login", v -> { clearForm(); showForm(); }));
+        vaultActions.addView(button("Settings", v -> toggleSettings()));
+        vaultActions.addView(button("Lock", v -> { masterPassword = ""; token = ""; items.clear(); renderItems(); setStatus("Locked."); showAuth(); }));
+        vaultGroup.addView(vaultActions);
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
-        root.addView(list);
+        vaultGroup.addView(list);
+        root.addView(vaultGroup);
 
-        root.addView(label("Add login", 20));
+        formGroup = group();
+        formGroup.addView(label("Add or edit login", 20));
         titleInput = input("Title");
         urlInput = input("URL");
         loginUsernameInput = input("Login username");
@@ -109,25 +124,67 @@ public class MainActivity extends Activity {
         notesInput = input("Notes");
         passkeyRpIdInput = input("Passkey RP ID");
         passkeyCredentialIdInput = input("Passkey credential ID");
-        root.addView(titleInput);
-        root.addView(urlInput);
-        root.addView(loginUsernameInput);
-        root.addView(loginPasswordInput);
-        root.addView(otpSecretInput);
-        root.addView(notesInput);
-        root.addView(passkeyRpIdInput);
-        root.addView(passkeyCredentialIdInput);
-        root.addView(button("Save and sync", v -> saveLogin()));
-        root.addView(label("Settings", 20));
-        root.addView(serverUrlInput);
-        root.addView(button("Test connection", v -> runAsync(() -> {
+        formGroup.addView(titleInput);
+        formGroup.addView(urlInput);
+        formGroup.addView(loginUsernameInput);
+        formGroup.addView(loginPasswordInput);
+        formGroup.addView(otpSecretInput);
+        formGroup.addView(notesInput);
+        formGroup.addView(passkeyRpIdInput);
+        formGroup.addView(passkeyCredentialIdInput);
+        formGroup.addView(button("Save", v -> saveLogin()));
+        formGroup.addView(button("Cancel", v -> { clearForm(); showVault(); }));
+        root.addView(formGroup);
+
+        settingsGroup = group();
+        settingsGroup.addView(label("Settings", 20));
+        settingsGroup.addView(serverUrlInput);
+        settingsGroup.addView(button("Test connection", v -> runAsync(() -> {
             JSONObject health = request("GET", "/health", null, false);
             setStatus(health.optString("product", "OpenFormVault") + " is online.");
         })));
-        root.addView(button("Sync now", v -> runAsync(this::pullRemote)));
-        root.addView(button("Force upload", v -> runAsync(this::pushRemote)));
+        settingsGroup.addView(button("Sync now", v -> runAsync(this::pullRemote)));
+        settingsGroup.addView(button("Force upload", v -> runAsync(this::pushRemote)));
+        root.addView(settingsGroup);
+
         setContentView(scroll);
         renderItems();
+        showAuth();
+    }
+
+    private LinearLayout group() {
+        LinearLayout group = new LinearLayout(this);
+        group.setOrientation(LinearLayout.VERTICAL);
+        group.setPadding(0, 6, 0, 6);
+        return group;
+    }
+
+    private void showAuth() {
+        authGroup.setVisibility(View.VISIBLE);
+        vaultGroup.setVisibility(View.GONE);
+        formGroup.setVisibility(View.GONE);
+        settingsGroup.setVisibility(View.GONE);
+    }
+
+    private void showVault() {
+        authGroup.setVisibility(View.GONE);
+        vaultGroup.setVisibility(View.VISIBLE);
+        formGroup.setVisibility(View.GONE);
+        settingsGroup.setVisibility(View.GONE);
+    }
+
+    private void showForm() {
+        authGroup.setVisibility(View.GONE);
+        vaultGroup.setVisibility(View.VISIBLE);
+        formGroup.setVisibility(View.VISIBLE);
+        settingsGroup.setVisibility(View.GONE);
+    }
+
+    private void toggleSettings() {
+        authGroup.setVisibility(View.GONE);
+        vaultGroup.setVisibility(View.VISIBLE);
+        formGroup.setVisibility(View.GONE);
+        settingsGroup.setVisibility(settingsGroup.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
     }
 
     private TextView label(String text, int sp) {
@@ -171,7 +228,7 @@ public class MainActivity extends Activity {
                 .putString("username", username)
                 .putString("token", token)
                 .apply();
-            try { pullRemote(); } catch (Exception ex) { saveLocalVault(); setStatus("Signed in. Add your first login; it will sync automatically."); }
+            try { pullRemote(); } catch (Exception ex) { saveLocalVault(); setStatus("Signed in. Add your first login; it will sync automatically."); runOnUiThread(this::showVault); }
         });
     }
 
@@ -193,6 +250,7 @@ public class MainActivity extends Activity {
         clearForm();
         try { saveLocalVault(); } catch (Exception ex) { setStatus("Local save failed: " + ex.getMessage()); }
         renderItems();
+        showVault();
         autoSync(existing >= 0 ? "Login updated. Auto-syncing…" : "Login saved. Auto-syncing…");
     }
 
@@ -207,6 +265,7 @@ public class MainActivity extends Activity {
         titleInput.setText(item.title); urlInput.setText(item.url); loginUsernameInput.setText(item.username); loginPasswordInput.setText(item.password);
         otpSecretInput.setText(item.otpSecret); notesInput.setText(item.notes); passkeyRpIdInput.setText(item.passkeyRpId); passkeyCredentialIdInput.setText(item.passkeyCredentialId);
         setStatus("Editing " + item.title + ".");
+        showForm();
     }
 
     private void autoSync(String message) {
@@ -239,6 +298,7 @@ public class MainActivity extends Activity {
         saveEncryptedSnapshot(snapshot);
         renderOnUi();
         setStatus("Pulled revision " + revision + ".");
+        runOnUiThread(this::showVault);
     }
 
     private void pushRemote() throws Exception {

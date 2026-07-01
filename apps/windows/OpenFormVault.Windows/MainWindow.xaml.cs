@@ -35,6 +35,10 @@ public sealed partial class MainWindow : Window
     private readonly TextBox _notesBox = new() { Header = "Notes", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 72 };
     private readonly TextBox _importBox = new() { Header = "RoboForm/CSV import", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 96, PlaceholderText = "Paste CSV with Name, URL, Login, Password, Note, Folder, TOTP" };
     private readonly StackPanel _itemsPanel = new() { Spacing = 8 };
+    private readonly StackPanel _authPanel = new() { Spacing = 12 };
+    private readonly StackPanel _vaultPanel = new() { Spacing = 12 };
+    private readonly StackPanel _formPanel = new() { Spacing = 12, Visibility = Visibility.Collapsed };
+    private readonly StackPanel _settingsPanel = new() { Spacing = 12, Visibility = Visibility.Collapsed };
 
     private readonly List<LoginItem> _items = [];
     private readonly HashSet<Guid> _revealedPasswords = [];
@@ -59,49 +63,95 @@ public sealed partial class MainWindow : Window
 
     private ScrollViewer BuildContent()
     {
-        var root = new StackPanel { Margin = new Thickness(32), Spacing = 12 };
+        var root = new StackPanel { Margin = new Thickness(32), Spacing = 14 };
         root.Children.Add(new TextBlock { Text = "OpenFormVault", FontSize = 32, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
         root.Children.Add(new TextBlock { Text = "Your private password vault for logins, passkeys, authenticator codes, and secure notes.", TextWrapping = TextWrapping.Wrap, Opacity = 0.78 });
         root.Children.Add(_statusText);
 
-        root.Children.Add(Section("Sign in"));
-        root.Children.Add(_usernameBox);
-        root.Children.Add(_passwordBox);
+        _authPanel.Children.Add(Section("Sign in"));
+        _authPanel.Children.Add(_usernameBox);
+        _authPanel.Children.Add(_passwordBox);
         var accountButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         accountButtons.Children.Add(Button("Log in", async () => await RunAsync(() => AuthenticateAsync(register: false))));
         accountButtons.Children.Add(Button("Create account", async () => await RunAsync(() => AuthenticateAsync(register: true))));
-        accountButtons.Children.Add(Button("Lock", () => Lock()));
-        root.Children.Add(accountButtons);
+        _authPanel.Children.Add(accountButtons);
+        root.Children.Add(_authPanel);
 
-        root.Children.Add(Section("Vault"));
-        root.Children.Add(_itemsPanel);
+        var vaultHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        vaultHeader.Children.Add(Button("+ Add login", () => ShowForm(clear: true)));
+        vaultHeader.Children.Add(Button("Settings", ToggleSettings));
+        vaultHeader.Children.Add(Button("Lock", Lock));
+        _vaultPanel.Children.Add(Section("Vault"));
+        _vaultPanel.Children.Add(vaultHeader);
+        _vaultPanel.Children.Add(_itemsPanel);
+        root.Children.Add(_vaultPanel);
 
-        root.Children.Add(Section("Add or edit login"));
-        root.Children.Add(_titleBox);
-        root.Children.Add(_urlBox);
-        root.Children.Add(_loginUsernameBox);
-        root.Children.Add(_loginPasswordBox);
-        root.Children.Add(new TextBlock { Text = "More fields", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Opacity = 0.78 });
-        root.Children.Add(_otpSecretBox);
-        root.Children.Add(_passkeyRpIdBox);
-        root.Children.Add(_passkeyCredentialIdBox);
-        root.Children.Add(_notesBox);
-        root.Children.Add(Button("Save and sync", SaveLogin));
+        _formPanel.Children.Add(Section("Add or edit login"));
+        _formPanel.Children.Add(_titleBox);
+        _formPanel.Children.Add(_urlBox);
+        _formPanel.Children.Add(_loginUsernameBox);
+        _formPanel.Children.Add(_loginPasswordBox);
+        _formPanel.Children.Add(new TextBlock { Text = "More fields", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Opacity = 0.78 });
+        _formPanel.Children.Add(_otpSecretBox);
+        _formPanel.Children.Add(_passkeyRpIdBox);
+        _formPanel.Children.Add(_passkeyCredentialIdBox);
+        _formPanel.Children.Add(_notesBox);
+        var formButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        formButtons.Children.Add(Button("Save", SaveLogin));
+        formButtons.Children.Add(Button("Cancel", () => { ClearForm(); ShowVault(); }));
+        _formPanel.Children.Add(formButtons);
+        root.Children.Add(_formPanel);
 
-        root.Children.Add(Section("Settings"));
+        _settingsPanel.Children.Add(Section("Settings"));
         var syncButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         syncButtons.Children.Add(Button("Test connection", async () => await RunAsync(CheckServerHealthAsync)));
         syncButtons.Children.Add(Button("Sync now", async () => await RunAsync(PullAsync)));
         syncButtons.Children.Add(Button("Force upload", async () => await RunAsync(PushAsync)));
-        root.Children.Add(_serverBox);
-        root.Children.Add(syncButtons);
-        root.Children.Add(new TextBlock { Text = "Import from RoboForm / CSV", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Opacity = 0.78 });
-        root.Children.Add(_importBox);
+        _settingsPanel.Children.Add(_serverBox);
+        _settingsPanel.Children.Add(syncButtons);
+        _settingsPanel.Children.Add(new TextBlock { Text = "Import from RoboForm / CSV", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Opacity = 0.78 });
+        _settingsPanel.Children.Add(_importBox);
         var importButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         importButtons.Children.Add(Button("Preview import", PreviewImport));
         importButtons.Children.Add(Button("Import and sync", ImportCsv));
-        root.Children.Add(importButtons);
+        _settingsPanel.Children.Add(importButtons);
+        root.Children.Add(_settingsPanel);
+
+        ShowAuth();
         return new ScrollViewer { Content = root };
+    }
+
+    private void ShowAuth()
+    {
+        _authPanel.Visibility = Visibility.Visible;
+        _vaultPanel.Visibility = Visibility.Collapsed;
+        _formPanel.Visibility = Visibility.Collapsed;
+        _settingsPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowVault()
+    {
+        _authPanel.Visibility = Visibility.Collapsed;
+        _vaultPanel.Visibility = Visibility.Visible;
+        _formPanel.Visibility = Visibility.Collapsed;
+        _settingsPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowForm(bool clear = false)
+    {
+        if (clear) ClearForm();
+        _authPanel.Visibility = Visibility.Collapsed;
+        _vaultPanel.Visibility = Visibility.Visible;
+        _formPanel.Visibility = Visibility.Visible;
+        _settingsPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ToggleSettings()
+    {
+        _authPanel.Visibility = Visibility.Collapsed;
+        _vaultPanel.Visibility = Visibility.Visible;
+        _formPanel.Visibility = Visibility.Collapsed;
+        _settingsPanel.Visibility = _settingsPanel.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private static TextBlock Section(string text) => new() { Text = text, FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 0) };
@@ -127,6 +177,7 @@ public sealed partial class MainWindow : Window
         _items.Clear();
         RenderItems();
         _statusText.Text = "Locked.";
+        ShowAuth();
     }
 
     private async void SaveLogin()
@@ -155,6 +206,7 @@ public sealed partial class MainWindow : Window
         else _items.Add(item);
         ClearForm();
         RenderItems();
+        ShowVault();
         await AutoPushAsync(existing >= 0 ? "Login updated. Auto-syncing…" : "Login saved. Auto-syncing…");
     }
 
@@ -177,6 +229,7 @@ public sealed partial class MainWindow : Window
         _passkeyRpIdBox.Text = item.Passkey?.RpId ?? string.Empty;
         _passkeyCredentialIdBox.Text = item.Passkey?.CredentialId ?? string.Empty;
         _statusText.Text = $"Editing {item.Title}.";
+        ShowForm();
     }
 
     private async Task AutoPushAsync(string message)
@@ -207,6 +260,7 @@ public sealed partial class MainWindow : Window
         catch
         {
             _statusText.Text = "Signed in. Add your first login; it will sync automatically.";
+            ShowVault();
         }
     }
 
@@ -218,6 +272,7 @@ public sealed partial class MainWindow : Window
         _revision = snapshot.Revision;
         RenderItems();
         _statusText.Text = $"Pulled revision {_revision}.";
+        ShowVault();
     }
 
     private async Task PushAsync()
