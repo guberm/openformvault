@@ -6,6 +6,7 @@ const vaultSection = $('vault');
 const itemsEl = $('items');
 const revisionLabel = $('revision-label');
 const visibleSecrets = new Set();
+let activeFilter = 'login';
 
 let session = { serverUrl: '', username: '', token: '', masterPassword: '', vault: { items: [] }, revision: 0 };
 let autoSyncTimer = null;
@@ -83,18 +84,34 @@ async function loadLocalSession() {
   await renderPendingSaveCandidate();
 }
 
-function updateRevision() { revisionLabel.textContent = `Revision ${session.revision || 0}`; }
-function showVault() { authSection.hidden = true; vaultSection.hidden = false; updateRevision(); renderItems(); }
+function updateRevision() { revisionLabel.textContent = session.revision ? `Synced revision ${session.revision}` : 'Ready to sync'; }
+function showVault() { authSection.hidden = true; vaultSection.hidden = false; $('item-form').hidden = true; $('settings-panel').hidden = true; updateRevision(); renderItems(); }
 function showAuth() { vaultSection.hidden = true; authSection.hidden = false; }
+
+function matchesFilter(item) {
+  if (activeFilter === 'otp') return Boolean(item.otpSecret);
+  if (activeFilter === 'passkey') return Boolean(item.passkey?.credentialId || item.passkey?.rpId);
+  return true;
+}
+
+function matchesSearch(item) {
+  const q = ($('vault-search')?.value || '').trim().toLowerCase();
+  if (!q) return true;
+  return [item.title, item.url, item.username, item.folder, item.notes].some(value => String(value || '').toLowerCase().includes(q));
+}
 
 function renderItems() {
   itemsEl.textContent = '';
   updateRevision();
-  if (session.vault.items.length === 0) {
-    itemsEl.textContent = 'No saved logins yet.';
+  const visibleItems = session.vault.items.map(normalizeItem).filter(item => matchesFilter(item) && matchesSearch(item));
+  if (visibleItems.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = session.vault.items.length === 0 ? 'No logins yet. Add your first saved login.' : 'No matching items.';
+    itemsEl.append(empty);
     return;
   }
-  for (const item of session.vault.items.map(normalizeItem)) {
+  for (const item of visibleItems) {
     const div = document.createElement('div');
     div.className = 'item';
     const secretVisible = visibleSecrets.has(item.id);
@@ -109,18 +126,18 @@ function renderItems() {
         </div>
       </div>
       <div class="secret" hidden></div>
-      <div class="row"></div>`;
+      <div class="item-actions"></div>`;
     const secret = div.querySelector('.secret');
     secret.hidden = !secretVisible;
     secret.textContent = secretVisible ? `Password: ${item.password || '(empty)'}` : '';
-    const row = div.querySelector('.row');
+    const row = div.querySelector('.item-actions');
     row.append(
-      actionButton('Fill', () => fillLogin(item)),
-      actionButton(secretVisible ? 'Hide password' : 'View password', () => { secretVisible ? visibleSecrets.delete(item.id) : visibleSecrets.add(item.id); renderItems(); }, 'secondary'),
-      actionButton('Edit', () => startEdit(item), 'secondary'),
-      actionButton('Delete', () => deleteItem(item), 'danger')
+      actionButton('Fill', () => fillLogin(item), 'primary small'),
+      actionButton(secretVisible ? 'Hide' : 'View', () => { secretVisible ? visibleSecrets.delete(item.id) : visibleSecrets.add(item.id); renderItems(); }, 'secondary small'),
+      actionButton('Edit', () => startEdit(item), 'ghost small'),
+      actionButton('Delete', () => deleteItem(item), 'danger small')
     );
-    if (item.otpSecret) row.append(actionButton('Copy OTP', async () => copyOtp(item), 'secondary'));
+    if (item.otpSecret) row.append(actionButton('Copy OTP', async () => copyOtp(item), 'secondary small'));
     itemsEl.append(div);
   }
 }
@@ -200,7 +217,7 @@ async function checkHealth() {
   const response = await fetch(`${session.serverUrl}/health`, { cache: 'no-store' });
   if (!response.ok) throw new Error(`Health HTTP ${response.status}`);
   const health = await response.json();
-  setStatus(`Server online: ${health.product} (${health.storage ?? 'storage unknown'})`);
+  setStatus(`${health.product ?? 'Server'} is online.`);
 }
 
 async function fillLogin(item) {
@@ -259,8 +276,9 @@ function clearForm() {
   $('editing-id').value = '';
   $('item-title').value = $('item-url').value = $('item-username').value = $('item-password').value = $('item-otp-secret').value = $('item-passkey-rp-id').value = $('item-passkey-credential-id').value = $('item-notes').value = '';
   $('form-title').textContent = 'Add login';
-  $('save-login').textContent = 'Save and sync';
+  $('save-login').textContent = 'Save';
   $('cancel-edit').hidden = true;
+  $('item-form').hidden = true;
 }
 
 function saveLogin() {
@@ -283,8 +301,10 @@ function startEdit(item) {
   $('item-passkey-credential-id').value = item.passkey?.credentialId || '';
   $('item-notes').value = item.notes || '';
   $('form-title').textContent = 'Edit login';
-  $('save-login').textContent = 'Update and sync';
+  $('save-login').textContent = 'Update';
   $('cancel-edit').hidden = false;
+  $('item-form').hidden = false;
+  $('settings-panel').hidden = true;
   setStatus(`Editing ${item.title}.`);
 }
 
@@ -399,11 +419,22 @@ async function copyOtp(item) {
 $('health-check').addEventListener('click', () => checkHealth().catch(e => setStatus(e.message)));
 $('register').addEventListener('click', () => auth('register').catch(e => setStatus(e.message)));
 $('login').addEventListener('click', () => auth('login').catch(e => setStatus(e.message)));
+$('show-master-password').addEventListener('change', event => { $('password').type = event.target.checked ? 'text' : 'password'; });
 $('sync-pull').addEventListener('click', () => pullVault().catch(e => { setSyncState('pull error', 'error'); setStatus(e.message); }));
 $('sync-push').addEventListener('click', () => pushVault().catch(e => { setSyncState('push error', 'error'); setStatus(e.message); }));
 $('lock').addEventListener('click', () => { session.masterPassword = ''; session.token = ''; showAuth(); setStatus('Locked.'); setSyncState('offline'); });
 $('save-login').addEventListener('click', saveLogin);
 $('cancel-edit').addEventListener('click', clearForm);
+$('add-login').addEventListener('click', () => { clearForm(); $('item-form').hidden = false; $('settings-panel').hidden = true; });
+$('close-form').addEventListener('click', clearForm);
+$('settings-toggle').addEventListener('click', () => { $('settings-panel').hidden = !$('settings-panel').hidden; $('item-form').hidden = true; });
+$('close-settings').addEventListener('click', () => { $('settings-panel').hidden = true; });
+$('vault-search').addEventListener('input', renderItems);
+document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+  activeFilter = tab.dataset.filter || 'login';
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t === tab));
+  renderItems();
+}));
 $('generate-password').addEventListener('click', generatePassword);
 $('import-file').addEventListener('change', async event => { const file = event.target.files?.[0]; if (file) $('import-text').value = await file.text(); previewImport(); });
 $('import-preview').addEventListener('click', previewImport);

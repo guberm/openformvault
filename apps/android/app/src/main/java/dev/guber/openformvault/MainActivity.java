@@ -77,7 +77,7 @@ public class MainActivity extends Activity {
         scroll.addView(root);
 
         TextView title = label("OpenFormVault", 28);
-        TextView subtitle = label("Android alpha: account login, encrypted local vault, view/edit/delete, auto-sync, OTP/passkey metadata, and Autofill scaffold.", 16);
+        TextView subtitle = label("Your private password vault for logins, passkeys, authenticator codes, and secure notes.", 16);
         status = label("Starting…", 15);
         serverUrlInput = input("Server URL");
         usernameInput = input("Username");
@@ -87,18 +87,17 @@ public class MainActivity extends Activity {
         root.addView(title);
         root.addView(subtitle);
         root.addView(status);
-        root.addView(serverUrlInput);
+        root.addView(label("Sign in", 20));
         root.addView(usernameInput);
         root.addView(passwordInput);
-        root.addView(button("Test server", v -> runAsync(() -> {
-            JSONObject health = request("GET", "/health", null, false);
-            setStatus("Server online: " + health.toString());
-        })));
-        root.addView(button("Create account", v -> authenticate(true)));
         root.addView(button("Log in", v -> authenticate(false)));
-        root.addView(button("Pull sync", v -> runAsync(this::pullRemote)));
-        root.addView(button("Push sync", v -> runAsync(this::pushRemote)));
+        root.addView(button("Create account", v -> authenticate(true)));
         root.addView(button("Lock", v -> { masterPassword = ""; token = ""; items.clear(); renderItems(); setStatus("Locked."); }));
+
+        root.addView(label("Vault", 20));
+        list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        root.addView(list);
 
         root.addView(label("Add login", 20));
         titleInput = input("Title");
@@ -119,10 +118,14 @@ public class MainActivity extends Activity {
         root.addView(passkeyRpIdInput);
         root.addView(passkeyCredentialIdInput);
         root.addView(button("Save and sync", v -> saveLogin()));
-        root.addView(label("Saved logins", 20));
-        list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        root.addView(list);
+        root.addView(label("Settings", 20));
+        root.addView(serverUrlInput);
+        root.addView(button("Test connection", v -> runAsync(() -> {
+            JSONObject health = request("GET", "/health", null, false);
+            setStatus(health.optString("product", "OpenFormVault") + " is online.");
+        })));
+        root.addView(button("Sync now", v -> runAsync(this::pullRemote)));
+        root.addView(button("Force upload", v -> runAsync(this::pushRemote)));
         setContentView(scroll);
         renderItems();
     }
@@ -168,7 +171,7 @@ public class MainActivity extends Activity {
                 .putString("username", username)
                 .putString("token", token)
                 .apply();
-            try { pullRemote(); } catch (Exception ex) { saveLocalVault(); setStatus("Authenticated. No remote vault yet; add a login and Push."); }
+            try { pullRemote(); } catch (Exception ex) { saveLocalVault(); setStatus("Signed in. Add your first login; it will sync automatically."); }
         });
     }
 

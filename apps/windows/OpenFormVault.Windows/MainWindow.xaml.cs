@@ -61,42 +61,54 @@ public sealed partial class MainWindow : Window
     {
         var root = new StackPanel { Margin = new Thickness(32), Spacing = 12 };
         root.Children.Add(new TextBlock { Text = "OpenFormVault", FontSize = 32, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        root.Children.Add(new TextBlock { Text = "WinUI 3 alpha: account login, encrypted local vault, full credential CRUD, auto-sync, RoboForm CSV import, OTP, passkey metadata, and server status.", TextWrapping = TextWrapping.Wrap });
+        root.Children.Add(new TextBlock { Text = "Your private password vault for logins, passkeys, authenticator codes, and secure notes.", TextWrapping = TextWrapping.Wrap, Opacity = 0.78 });
         root.Children.Add(_statusText);
 
-        root.Children.Add(Section("Account"));
-        root.Children.Add(_serverBox);
+        root.Children.Add(Section("Sign in"));
         root.Children.Add(_usernameBox);
         root.Children.Add(_passwordBox);
         var accountButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        accountButtons.Children.Add(Button("Test server", async () => await RunAsync(CheckServerHealthAsync)));
-        accountButtons.Children.Add(Button("Create account", async () => await RunAsync(() => AuthenticateAsync(register: true))));
         accountButtons.Children.Add(Button("Log in", async () => await RunAsync(() => AuthenticateAsync(register: false))));
-        accountButtons.Children.Add(Button("Pull sync", async () => await RunAsync(PullAsync)));
-        accountButtons.Children.Add(Button("Push sync", async () => await RunAsync(PushAsync)));
+        accountButtons.Children.Add(Button("Create account", async () => await RunAsync(() => AuthenticateAsync(register: true))));
         accountButtons.Children.Add(Button("Lock", () => Lock()));
         root.Children.Add(accountButtons);
 
-        root.Children.Add(Section("Add login"));
+        root.Children.Add(Section("Vault"));
+        root.Children.Add(_itemsPanel);
+
+        root.Children.Add(Section("Add or edit login"));
         root.Children.Add(_titleBox);
         root.Children.Add(_urlBox);
         root.Children.Add(_loginUsernameBox);
         root.Children.Add(_loginPasswordBox);
-        root.Children.Add(_otpSecretBox);
-        root.Children.Add(_passkeyRpIdBox);
-        root.Children.Add(_passkeyCredentialIdBox);
-        root.Children.Add(_notesBox);
+        root.Children.Add(new Expander
+        {
+            Header = "More fields",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children = { _otpSecretBox, _passkeyRpIdBox, _passkeyCredentialIdBox, _notesBox }
+            }
+        });
         root.Children.Add(Button("Save and sync", SaveLogin));
 
-        root.Children.Add(Section("Import from RoboForm / CSV"));
-        root.Children.Add(_importBox);
+        root.Children.Add(Section("Settings"));
+        var syncButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        syncButtons.Children.Add(Button("Test connection", async () => await RunAsync(CheckServerHealthAsync)));
+        syncButtons.Children.Add(Button("Sync now", async () => await RunAsync(PullAsync)));
+        syncButtons.Children.Add(Button("Force upload", async () => await RunAsync(PushAsync)));
         var importButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         importButtons.Children.Add(Button("Preview import", PreviewImport));
         importButtons.Children.Add(Button("Import and sync", ImportCsv));
-        root.Children.Add(importButtons);
-
-        root.Children.Add(Section("Saved logins"));
-        root.Children.Add(_itemsPanel);
+        root.Children.Add(new Expander
+        {
+            Header = "Advanced and import",
+            Content = new StackPanel
+            {
+                Spacing = 8,
+                Children = { _serverBox, syncButtons, _importBox, importButtons }
+            }
+        });
         return new ScrollViewer { Content = root };
     }
 
@@ -184,10 +196,10 @@ public sealed partial class MainWindow : Window
 
     private async Task CheckServerHealthAsync()
     {
-        _statusText.Text = $"Checking {ServerUrl}/health …";
+        _statusText.Text = "Checking connection…";
         using var response = await HttpClient.GetAsync($"{ServerUrl}/health");
         var body = await response.Content.ReadAsStringAsync();
-        _statusText.Text = response.IsSuccessStatusCode ? $"Server online: {body}" : $"Server health failed: HTTP {(int)response.StatusCode} {body}";
+        _statusText.Text = response.IsSuccessStatusCode ? "Connected to OpenFormVault." : $"Connection failed: HTTP {(int)response.StatusCode}.";
     }
 
     private async Task AuthenticateAsync(bool register)
@@ -202,7 +214,7 @@ public sealed partial class MainWindow : Window
         }
         catch
         {
-            _statusText.Text = "Authenticated. No remote vault yet; add a login and Push.";
+            _statusText.Text = "Signed in. Add your first login; it will sync automatically.";
         }
     }
 

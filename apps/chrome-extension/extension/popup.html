@@ -8,79 +8,121 @@
 <body>
   <main>
     <header class="app-header">
-      <div>
+      <div class="brand-mark" aria-hidden="true">◇</div>
+      <div class="brand-copy">
         <h1>OpenFormVault</h1>
-        <p id="status">Locked.</p>
+        <p id="status">Sign in to unlock your vault.</p>
       </div>
-      <span class="sync-pill" id="sync-state">offline</span>
+      <span class="sync-pill" id="sync-state">locked</span>
     </header>
 
-    <section id="auth" class="card">
-      <label>Server URL <input id="server-url" type="url" value="https://openformvault.guber.dev"></label>
-      <label>Username <input id="username" type="text" autocomplete="username"></label>
-      <label>Master password <input id="password" type="password" autocomplete="current-password"></label>
-      <div class="row">
-        <button id="register">Create account</button>
-        <button id="login">Log in</button>
-        <button id="health-check" class="secondary">Test server</button>
+    <section id="auth" class="screen auth-screen">
+      <div class="hero-card">
+        <h2>Your private password vault</h2>
+        <p>Save logins locally, sync encrypted data across your devices, and fill sign-in forms from Chrome.</p>
       </div>
+      <label>Email or username <input id="username" type="text" autocomplete="username" placeholder="you@example.com"></label>
+      <label>Master password <input id="password" type="password" autocomplete="current-password" placeholder="••••••••••••"></label>
+      <label class="check-row"><input id="show-master-password" type="checkbox"> Show password</label>
+      <div class="primary-actions">
+        <button id="login" class="primary">Log in</button>
+        <button id="register" class="secondary">Create account</button>
+      </div>
+      <details class="advanced-auth">
+        <summary>Server settings</summary>
+        <label>Server URL <input id="server-url" type="url" value="https://openformvault.guber.dev"></label>
+        <button id="health-check" class="ghost">Test connection</button>
+      </details>
     </section>
 
-    <section id="vault" hidden>
-      <section class="card toolbar">
+    <section id="vault" class="screen vault-screen" hidden>
+      <section class="vault-topbar">
         <div>
           <strong>Vault</strong>
-          <small id="revision-label">Revision 0</small>
+          <small id="revision-label">Synced vault</small>
         </div>
-        <div class="row compact">
-          <button id="sync-pull" class="secondary">Pull</button>
-          <button id="sync-push" class="secondary">Push</button>
-          <button id="lock" class="secondary">Lock</button>
+        <button id="settings-toggle" class="icon-button" title="Settings">⚙</button>
+      </section>
+
+      <section class="search-card">
+        <input id="vault-search" type="search" placeholder="Search logins, websites, usernames">
+        <div class="tabs" aria-label="Vault sections">
+          <button class="tab active" data-filter="login">Logins</button>
+          <button class="tab" data-filter="passkey">Passkeys</button>
+          <button class="tab" data-filter="otp">Authenticator</button>
         </div>
       </section>
 
-      <section id="detected-login" class="card" hidden>
-        <h2>Detected login</h2>
-        <p class="hint" id="detected-login-text"></p>
+      <section id="detected-login" class="callout" hidden>
+        <div>
+          <strong>Save this login?</strong>
+          <p id="detected-login-text"></p>
+        </div>
         <div class="row">
-          <button id="save-detected-login">Save detected login</button>
-          <button id="dismiss-detected-login" class="secondary">Dismiss</button>
+          <button id="save-detected-login" class="primary small">Save</button>
+          <button id="dismiss-detected-login" class="ghost small">Not now</button>
         </div>
       </section>
 
-      <section class="card">
-        <h2 id="form-title">Add login</h2>
+      <section class="vault-list-card">
+        <div class="section-title">
+          <h2>Saved items</h2>
+          <button id="add-login" class="primary small">+ Add</button>
+        </div>
+        <div id="items" class="vault-list"></div>
+      </section>
+
+      <section id="item-form" class="drawer" hidden>
+        <div class="section-title">
+          <h2 id="form-title">Add login</h2>
+          <button id="close-form" class="icon-button" title="Close">×</button>
+        </div>
         <input id="editing-id" type="hidden">
         <label>Title <input id="item-title" type="text" placeholder="Example"></label>
-        <label>URL <input id="item-url" type="url" placeholder="https://example.com"></label>
+        <label>Website <input id="item-url" type="url" placeholder="https://example.com"></label>
         <label>Username <input id="item-username" type="text" autocomplete="username"></label>
         <label>Password <input id="item-password" type="password" autocomplete="new-password"></label>
-        <label>OTP/TOTP secret <input id="item-otp-secret" type="text" placeholder="Base32 secret, optional" autocomplete="off"></label>
-        <label>Passkey RP ID <input id="item-passkey-rp-id" type="text" placeholder="example.com, optional"></label>
-        <label>Passkey credential ID <input id="item-passkey-credential-id" type="text" placeholder="Base64URL credential id, optional"></label>
-        <label>Notes <textarea id="item-notes" placeholder="Local encrypted notes"></textarea></label>
-        <div class="row">
-          <button id="save-login">Save and sync</button>
-          <button id="cancel-edit" class="secondary" hidden>Cancel edit</button>
+        <details>
+          <summary>More fields</summary>
+          <label>OTP/TOTP secret <input id="item-otp-secret" type="text" placeholder="Base32 secret" autocomplete="off"></label>
+          <label>Passkey RP ID <input id="item-passkey-rp-id" type="text" placeholder="example.com"></label>
+          <label>Passkey credential ID <input id="item-passkey-credential-id" type="text" placeholder="Base64URL credential id"></label>
+          <label>Notes <textarea id="item-notes" placeholder="Encrypted notes"></textarea></label>
+        </details>
+        <div class="primary-actions">
+          <button id="save-login" class="primary">Save</button>
           <button id="generate-password" class="secondary">Generate password</button>
+          <button id="cancel-edit" class="ghost" hidden>Cancel edit</button>
         </div>
       </section>
 
-      <section class="card">
-        <h2>Import from RoboForm/CSV</h2>
-        <p class="hint">Paste a RoboForm CSV export or choose a CSV file. Import is local first, then auto-syncs encrypted vault data.</p>
-        <input id="import-file" type="file" accept=".csv,text/csv,text/plain">
-        <textarea id="import-text" placeholder="CSV with columns like Name, Url/MatchUrl, Login, Pwd/Password, Note, Folder, RfFieldsV2, TOTP"></textarea>
-        <div class="row">
-          <button id="import-preview" class="secondary">Preview import</button>
-          <button id="import-commit">Import and sync</button>
+      <section id="settings-panel" class="drawer settings-drawer" hidden>
+        <div class="section-title">
+          <h2>Settings</h2>
+          <button id="close-settings" class="icon-button" title="Close">×</button>
         </div>
-        <pre id="import-result"></pre>
-      </section>
-
-      <section class="card">
-        <h2>Logins</h2>
-        <div id="items"></div>
+        <div class="settings-row">
+          <span>Sync</span>
+          <div class="row compact">
+            <button id="sync-pull" class="secondary small">Sync now</button>
+            <button id="sync-push" class="ghost small">Force upload</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <span>Account</span>
+          <button id="lock" class="secondary small">Lock</button>
+        </div>
+        <details>
+          <summary>Import from RoboForm or CSV</summary>
+          <p class="hint">Paste a RoboForm CSV export or choose a CSV file. Import stays local first, then syncs encrypted vault data.</p>
+          <input id="import-file" type="file" accept=".csv,text/csv,text/plain">
+          <textarea id="import-text" placeholder="Name, Url/MatchUrl, Login, Pwd/Password, Note, Folder, RfFieldsV2, TOTP"></textarea>
+          <div class="row">
+            <button id="import-preview" class="secondary small">Preview</button>
+            <button id="import-commit" class="primary small">Import</button>
+          </div>
+          <pre id="import-result"></pre>
+        </details>
       </section>
     </section>
   </main>
