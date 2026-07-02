@@ -14,14 +14,17 @@ async function json(path, options = {}) {
 test('server supports account auth and encrypted vault snapshot conflict checks', async () => {
   const username = `it-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const password = 'CorrectHorseBattery123!';
-  const registered = await json('/v1/users/register', { method: 'POST', body: JSON.stringify({ username, password }) });
+  const deviceId = crypto.randomUUID();
+  const deviceName = 'Chrome Integration Device';
+  const deviceHeaders = { 'x-openformvault-device-id': deviceId, 'x-openformvault-device-name': deviceName };
+  const registered = await json('/v1/users/register', { method: 'POST', headers: deviceHeaders, body: JSON.stringify({ username, password }) });
   assert.equal(registered.username, username);
   assert.ok(registered.token);
 
-  const loggedIn = await json('/v1/session', { method: 'POST', body: JSON.stringify({ username, password }) });
+  const loggedIn = await json('/v1/session', { method: 'POST', headers: deviceHeaders, body: JSON.stringify({ username, password }) });
   assert.ok(loggedIn.token);
 
-  const auth = { authorization: `Bearer ${loggedIn.token}` };
+  const auth = { authorization: `Bearer ${loggedIn.token}`, ...deviceHeaders };
   const put1 = await json('/v1/vault/snapshot', { method: 'PUT', headers: auth, body: JSON.stringify({ ciphertext: 'cipher-a', nonce: 'nonce-a', salt: 'salt-a', algorithm: 'test', kdf: 'test', baseRevision: null }) });
   assert.equal(put1.revision, 1);
 
@@ -31,4 +34,8 @@ test('server supports account auth and encrypted vault snapshot conflict checks'
 
   const stale = await fetch(`${base}/v1/vault/snapshot`, { method: 'PUT', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ ciphertext: 'cipher-b', nonce: 'nonce-b', salt: 'salt-b', algorithm: 'test', kdf: 'test', baseRevision: 0 }) });
   assert.equal(stale.status, 409);
+
+  const devices = await json('/v1/devices', { headers: auth });
+  assert.ok(Array.isArray(devices.devices));
+  assert.ok(devices.devices.some(device => device.deviceId === deviceId && device.deviceName === deviceName));
 });

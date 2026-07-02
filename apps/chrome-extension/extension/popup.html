@@ -52,6 +52,9 @@
         <input id="vault-search" type="search" placeholder="Search logins, websites, usernames">
         <div class="tabs" aria-label="Vault sections">
           <button class="tab active" data-filter="login">Logins</button>
+          <button class="tab" data-filter="identity">Identities</button>
+          <button class="tab" data-filter="note">Safenotes</button>
+          <button class="tab" data-filter="bookmark">Bookmarks</button>
           <button class="tab" data-filter="passkey">Passkeys</button>
           <button class="tab" data-filter="otp">Authenticator</button>
         </div>
@@ -82,12 +85,28 @@
           <button id="close-form" class="icon-button" title="Close">×</button>
         </div>
         <input id="editing-id" type="hidden">
+        <label>Item type
+          <select id="item-type">
+            <option value="login">Login</option>
+            <option value="identity">Identity</option>
+            <option value="note">Safenote</option>
+            <option value="bookmark">Bookmark</option>
+            <option value="passkey">Passkey</option>
+          </select>
+        </label>
         <label>Title <input id="item-title" type="text" placeholder="Example"></label>
+        <label>Folder <input id="item-folder" type="text" placeholder="Personal"></label>
+        <label class="check-row"><input id="item-pinned" type="checkbox"> Pinned</label>
         <label>Website <input id="item-url" type="url" placeholder="https://example.com"></label>
         <label>Username <input id="item-username" type="text" autocomplete="username"></label>
         <label>Password <input id="item-password" type="password" autocomplete="new-password"></label>
         <details>
           <summary>More fields</summary>
+          <label>Identity full name <input id="item-full-name" type="text" placeholder="Jane Example"></label>
+          <label>Identity email <input id="item-email" type="email" placeholder="jane@example.com"></label>
+          <label>Identity phone <input id="item-phone" type="tel" placeholder="+1 555 555 5555"></label>
+          <label>Identity address <textarea id="item-address" placeholder="123 Example Street"></textarea></label>
+          <label>Bookmark description <textarea id="item-description" placeholder="What this bookmark is for"></textarea></label>
           <label>OTP/TOTP secret <input id="item-otp-secret" type="text" placeholder="Base32 secret" autocomplete="off"></label>
           <label>Passkey RP ID <input id="item-passkey-rp-id" type="text" placeholder="example.com"></label>
           <label>Passkey credential ID <input id="item-passkey-credential-id" type="text" placeholder="Base64URL credential id"></label>
@@ -120,6 +139,20 @@
           <span>Theme</span>
           <select id="theme-mode"><option>System</option><option>Light</option><option>Dark</option></select>
         </div>
+        <div class="settings-row">
+          <span>Startup screen</span>
+          <select id="startup-screen"><option>Vault</option><option>Add item</option><option>Settings</option></select>
+        </div>
+        <div class="settings-row">
+          <span>Auto-lock</span>
+          <select id="auto-lock"><option>Off</option><option>30 sec</option><option>1 min</option><option>5 min</option></select>
+        </div>
+        <details>
+          <summary>Trusted devices</summary>
+          <p class="hint">Devices that recently signed in to this account.</p>
+          <button id="trusted-devices-refresh" class="secondary small">Refresh</button>
+          <pre id="trusted-devices-result"></pre>
+        </details>
         <details>
           <summary>Security report</summary>
           <p class="hint">Local-only checks over decrypted vault items.</p>

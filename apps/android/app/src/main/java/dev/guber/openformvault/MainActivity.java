@@ -4,9 +4,11 @@ import android.app.Activity;
 import android.content.ComponentName;
 import android.content.Intent;
 import android.provider.Settings;
+import android.provider.Settings.Secure;
 import android.os.Bundle;
 import android.text.InputType;
 import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -27,6 +29,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -59,17 +62,28 @@ public class MainActivity extends Activity {
     private EditText loginUsernameInput;
     private EditText loginPasswordInput;
     private EditText searchInput;
+    private Spinner itemTypeInput;
+    private EditText itemFolderInput;
+    private CheckBox itemPinnedInput;
     private EditText otpSecretInput;
     private EditText notesInput;
     private EditText passkeyRpIdInput;
     private EditText passkeyCredentialIdInput;
+    private EditText identityFullNameInput;
+    private EditText identityEmailInput;
+    private EditText identityPhoneInput;
+    private EditText identityAddressInput;
+    private EditText bookmarkDescriptionInput;
     private LinearLayout list;
     private LinearLayout authGroup;
     private LinearLayout vaultGroup;
     private LinearLayout formGroup;
     private LinearLayout settingsGroup;
     private Spinner themeModeInput;
+    private Spinner startupScreenInput;
+    private Spinner autoLockInput;
     private boolean registerMode = false;
+    private long lastPausedAt = 0L;
 
     private String token = "";
     private String masterPassword = "";
@@ -89,48 +103,82 @@ public class MainActivity extends Activity {
         setStatus("Ready. Log in or create an account.");
     }
 
+    @Override protected void onPause() {
+        super.onPause();
+        if (!masterPassword.isEmpty()) {
+            getPreferences(MODE_PRIVATE).edit().putLong("lastPausedAt", System.currentTimeMillis()).apply();
+        }
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        long thresholdMs = autoLockMillis();
+        if (thresholdMs <= 0) return;
+        long pausedAt = getPreferences(MODE_PRIVATE).getLong("lastPausedAt", 0L);
+        if (pausedAt > 0 && !masterPassword.isEmpty() && System.currentTimeMillis() - pausedAt >= thresholdMs) {
+            masterPassword = "";
+            token = "";
+            items.clear();
+            renderItems();
+            setStatus("Auto-locked after inactivity.");
+            showLogin();
+        }
+    }
+
     private void buildUi() {
         ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(32, 48, 32, 32);
+        root.setPadding(dp(24), dp(72), dp(24), dp(32));
         applyTheme(getPreferences(MODE_PRIVATE).getString("themeMode", "System"));
-        scroll.addView(root);
+        scroll.addView(root, new ScrollView.LayoutParams(ScrollView.LayoutParams.MATCH_PARENT, ScrollView.LayoutParams.WRAP_CONTENT));
 
-        TextView title = label("OpenFormVault", 24);
-        TextView subtitle = label("Your private password vault for logins, passkeys, authenticator codes, and secure notes.", 15);
+        TextView title = label("OpenFormVault", 22);
+        TextView subtitle = caption("Private password vault for logins, passkeys, authenticator codes, and secure notes.");
         title.setTextColor(Color.rgb(17, 24, 39));
-        subtitle.setTextColor(Color.rgb(107, 114, 128));
-        status = label("Starting…", 15);
+        status = caption("Ready to sign in or create an account.");
         status.setTextColor(Color.rgb(71, 85, 105));
+        status.setPadding(dp(12), dp(10), dp(12), dp(10));
+        status.setBackground(roundedRect(Color.rgb(239, 246, 255), Color.rgb(191, 219, 254), 14));
+
         serverUrlInput = input("Server URL");
-        usernameInput = input("Username");
+        usernameInput = input("Email or username");
         passwordInput = input("Master password");
         confirmPasswordInput = input("Confirm master password");
         passwordInput.setInputType(0x00000081); // TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_PASSWORD
         confirmPasswordInput.setInputType(0x00000081);
         showAuthPasswords = new CheckBox(this);
-        showAuthPasswords.setText("👁 Show password");
+        showAuthPasswords.setText("Show passwords");
+        showAuthPasswords.setTextSize(15);
         showAuthPasswords.setOnCheckedChangeListener((button, checked) -> setAuthPasswordVisibility(checked));
+        LinearLayout.LayoutParams authCheckParams = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        authCheckParams.bottomMargin = dp(12);
+        showAuthPasswords.setLayoutParams(authCheckParams);
 
         root.addView(title);
         root.addView(subtitle);
         root.addView(status);
 
         authGroup = group();
-        authTitle = label("Sign in", 20);
+        authGroup.setPadding(dp(20), dp(20), dp(20), dp(20));
+        authGroup.setBackground(roundedRect(Color.WHITE, Color.rgb(226, 232, 240), 18));
+        authTitle = label("Sign in", 18);
         authGroup.addView(authTitle);
-        authGroup.addView(label("Server", 14));
+        authGroup.addView(caption("Server"));
         authGroup.addView(serverUrlInput);
         authGroup.addView(usernameInput);
         authGroup.addView(passwordInput);
         authGroup.addView(confirmPasswordInput);
         authGroup.addView(showAuthPasswords);
         LinearLayout authActions = group();
-        authActions.setOrientation(LinearLayout.HORIZONTAL);
+        authActions.setOrientation(LinearLayout.VERTICAL);
         loginButton = button("Log in", v -> authenticate(false));
         createAccountButton = button("Create account", v -> { if (registerMode) authenticate(true); else showRegister(); });
-        backToLoginButton = button("Back to login", v -> showLogin());
+        backToLoginButton = button("Back to sign in", v -> showLogin());
+        styleAuthPrimary(loginButton);
+        styleAuthPrimary(createAccountButton);
+        styleAuthSecondary(backToLoginButton);
         authActions.addView(loginButton);
         authActions.addView(createAccountButton);
         authActions.addView(backToLoginButton);
@@ -138,11 +186,11 @@ public class MainActivity extends Activity {
         root.addView(authGroup);
 
         vaultGroup = group();
-        vaultGroup.addView(label("Vault", 20));
+        vaultGroup.addView(label("Vault", 18));
         LinearLayout vaultActions = group();
         vaultActions.setOrientation(LinearLayout.HORIZONTAL);
         vaultActions.addView(button("+ Add", v -> { clearForm(); showForm(); }));
-        vaultActions.addView(button("⚙", v -> toggleSettings()));
+        vaultActions.addView(button("Settings", v -> toggleSettings()));
         vaultGroup.addView(vaultActions);
         searchInput = input("Search vault");
         searchInput.setSingleLine(true);
@@ -154,21 +202,42 @@ public class MainActivity extends Activity {
         root.addView(vaultGroup);
 
         formGroup = group();
-        formGroup.addView(label("Add or edit login", 20));
+        formGroup.addView(label("Add or edit item", 18));
+        itemTypeInput = new Spinner(this);
+        ArrayAdapter<String> itemTypeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, new String[] { "login", "identity", "note", "bookmark", "passkey" });
+        itemTypeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        itemTypeInput.setAdapter(itemTypeAdapter);
+        itemFolderInput = input("Folder");
+        itemPinnedInput = new CheckBox(this);
+        itemPinnedInput.setText("Pinned");
         titleInput = input("Title");
         urlInput = input("URL");
         loginUsernameInput = input("Login username");
         loginPasswordInput = input("Login password");
         loginPasswordInput.setInputType(0x00000081);
+        identityFullNameInput = input("Identity full name");
+        identityEmailInput = input("Identity email");
+        identityPhoneInput = input("Identity phone");
+        identityAddressInput = input("Identity address");
+        bookmarkDescriptionInput = input("Bookmark description");
         otpSecretInput = input("OTP/TOTP secret");
-        notesInput = input("Notes");
+        notesInput = input("Notes / Safenote");
         passkeyRpIdInput = input("Passkey RP ID");
         passkeyCredentialIdInput = input("Passkey credential ID");
+        formGroup.addView(caption("Item type"));
+        formGroup.addView(itemTypeInput);
+        formGroup.addView(itemFolderInput);
+        formGroup.addView(itemPinnedInput);
         formGroup.addView(titleInput);
         formGroup.addView(urlInput);
         formGroup.addView(loginUsernameInput);
         formGroup.addView(loginPasswordInput);
         formGroup.addView(button("Generate password", v -> generatePassword()));
+        formGroup.addView(identityFullNameInput);
+        formGroup.addView(identityEmailInput);
+        formGroup.addView(identityPhoneInput);
+        formGroup.addView(identityAddressInput);
+        formGroup.addView(bookmarkDescriptionInput);
         formGroup.addView(otpSecretInput);
         formGroup.addView(notesInput);
         formGroup.addView(passkeyRpIdInput);
@@ -178,8 +247,26 @@ public class MainActivity extends Activity {
         root.addView(formGroup);
 
         settingsGroup = group();
-        settingsGroup.addView(label("Settings", 20));
-        settingsGroup.addView(label("Theme", 14));
+        settingsGroup.addView(label("Settings", 18));
+        settingsGroup.addView(caption("Startup screen"));
+        startupScreenInput = new Spinner(this);
+        ArrayAdapter<String> startupAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, new String[] { "Vault", "Add item", "Settings" });
+        startupAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        startupScreenInput.setAdapter(startupAdapter);
+        String startup = getPreferences(MODE_PRIVATE).getString("startupScreen", "Vault");
+        startupScreenInput.setSelection("Add item".equals(startup) ? 1 : ("Settings".equals(startup) ? 2 : 0));
+        settingsGroup.addView(startupScreenInput);
+        settingsGroup.addView(button("Save startup screen", v -> saveStartupScreen()));
+        settingsGroup.addView(caption("Auto-lock"));
+        autoLockInput = new Spinner(this);
+        ArrayAdapter<String> autoLockAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, new String[] { "Off", "30 sec", "1 min", "5 min" });
+        autoLockAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        autoLockInput.setAdapter(autoLockAdapter);
+        String autoLock = getPreferences(MODE_PRIVATE).getString("autoLock", "Off");
+        autoLockInput.setSelection("30 sec".equals(autoLock) ? 1 : ("1 min".equals(autoLock) ? 2 : ("5 min".equals(autoLock) ? 3 : 0)));
+        settingsGroup.addView(autoLockInput);
+        settingsGroup.addView(button("Save auto-lock", v -> saveAutoLock()));
+        settingsGroup.addView(caption("Theme"));
         themeModeInput = new Spinner(this);
         ArrayAdapter<String> themeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, new String[] { "System", "Light", "Dark" });
         themeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
@@ -189,6 +276,7 @@ public class MainActivity extends Activity {
         settingsGroup.addView(themeModeInput);
         settingsGroup.addView(button("Apply theme", v -> setThemeMode()));
         settingsGroup.addView(button("Security report", v -> showSecurityReport()));
+        settingsGroup.addView(button("Trusted devices", v -> runAsync(this::showTrustedDevices)));
         settingsGroup.addView(button("Android Autofill settings", v -> openAutofillSettings()));
         settingsGroup.addView(button("Lock", v -> { masterPassword = ""; token = ""; items.clear(); renderItems(); setStatus("Locked."); showLogin(); }));
         settingsGroup.addView(button("Test connection", v -> runAsync(() -> {
@@ -253,6 +341,13 @@ public class MainActivity extends Activity {
         settingsGroup.setVisibility(View.GONE);
     }
 
+    private void showStartupDestination() {
+        String startup = getPreferences(MODE_PRIVATE).getString("startupScreen", "Vault");
+        if ("Add item".equals(startup)) showForm();
+        else if ("Settings".equals(startup)) toggleSettings();
+        else showVault();
+    }
+
     private void showForm() {
         authGroup.setVisibility(View.GONE);
         vaultGroup.setVisibility(View.VISIBLE);
@@ -271,7 +366,17 @@ public class MainActivity extends Activity {
         TextView view = new TextView(this);
         view.setText(text);
         view.setTextSize(sp);
-        view.setPadding(0, 8, 0, 8);
+        view.setPadding(0, dp(4), 0, dp(4));
+        view.setTextColor(Color.rgb(17, 24, 39));
+        return view;
+    }
+
+    private TextView caption(String text) {
+        TextView view = new TextView(this);
+        view.setText(text);
+        view.setTextSize(14);
+        view.setPadding(0, 0, 0, dp(6));
+        view.setTextColor(Color.rgb(100, 116, 139));
         return view;
     }
 
@@ -279,14 +384,34 @@ public class MainActivity extends Activity {
         EditText input = new EditText(this);
         input.setHint(hint);
         input.setSingleLine(true);
+        input.setTextSize(16);
+        input.setTextColor(Color.rgb(17, 24, 39));
+        input.setHintTextColor(Color.rgb(148, 163, 184));
+        input.setBackground(roundedRect(Color.WHITE, Color.rgb(203, 213, 225), 14));
+        input.setPadding(dp(14), dp(14), dp(14), dp(14));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = dp(12);
+        input.setLayoutParams(params);
         if ("Server URL".equals(hint)) {
             input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        } else if ("Username".equals(hint) || "Login username".equals(hint)) {
+        } else if ("Email or username".equals(hint) || "Login username".equals(hint)) {
             input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         } else if ("URL".equals(hint)) {
             input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         }
         return input;
+    }
+
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private GradientDrawable roundedRect(int fill, int stroke, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(fill);
+        drawable.setCornerRadius(dp(radiusDp));
+        drawable.setStroke(dp(1), stroke);
+        return drawable;
     }
 
     private void openAutofillSettings() {
@@ -302,15 +427,39 @@ public class MainActivity extends Activity {
     private Button button(String text, View.OnClickListener listener) {
         Button button = new Button(this);
         button.setText(text);
+        button.setAllCaps(false);
+        button.setTextSize(15);
+        button.setMinHeight(dp(44));
+        button.setPadding(dp(14), dp(12), dp(14), dp(12));
         button.setOnClickListener(listener);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.rightMargin = dp(8);
+        params.bottomMargin = dp(8);
+        button.setLayoutParams(params);
         if ("Log in".equals(text) || "+ Add".equals(text) || "Save".equals(text) || "Create account".equals(text)) {
             button.setTextColor(Color.WHITE);
-            button.setBackgroundColor(Color.rgb(37, 99, 235));
+            button.setBackground(roundedRect(Color.rgb(37, 99, 235), Color.rgb(37, 99, 235), 14));
         } else {
             button.setTextColor(Color.rgb(31, 41, 55));
-            button.setBackgroundColor(Color.rgb(229, 231, 235));
+            button.setBackground(roundedRect(Color.rgb(241, 245, 249), Color.rgb(203, 213, 225), 14));
         }
         return button;
+    }
+
+    private void styleAuthPrimary(Button button) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = dp(10);
+        button.setLayoutParams(params);
+        button.setTextColor(Color.WHITE);
+        button.setBackground(roundedRect(Color.rgb(37, 99, 235), Color.rgb(37, 99, 235), 14));
+    }
+
+    private void styleAuthSecondary(Button button) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+        params.bottomMargin = dp(4);
+        button.setLayoutParams(params);
+        button.setTextColor(Color.rgb(31, 41, 55));
+        button.setBackground(roundedRect(Color.rgb(255, 255, 255), Color.rgb(203, 213, 225), 14));
     }
 
     private void generatePassword() {
@@ -328,10 +477,34 @@ public class MainActivity extends Activity {
         setStatus("Theme set to " + mode + ".");
     }
 
+    private void saveStartupScreen() {
+        String startup = startupScreenInput.getSelectedItem().toString();
+        getPreferences(MODE_PRIVATE).edit().putString("startupScreen", startup).apply();
+        setStatus("Startup screen set to " + startup + ".");
+    }
+
+    private void saveAutoLock() {
+        String autoLock = autoLockInput.getSelectedItem().toString();
+        getPreferences(MODE_PRIVATE).edit().putString("autoLock", autoLock).apply();
+        setStatus("Auto-lock set to " + autoLock + ".");
+    }
+
+    private long autoLockMillis() {
+        String autoLock = getPreferences(MODE_PRIVATE).getString("autoLock", "Off");
+        if ("30 sec".equals(autoLock)) return 30_000L;
+        if ("1 min".equals(autoLock)) return 60_000L;
+        if ("5 min".equals(autoLock)) return 300_000L;
+        return 0L;
+    }
+
     private void applyTheme(String mode) {
         boolean dark = "Dark".equals(mode);
         if (root != null) root.setBackgroundColor(dark ? Color.rgb(15, 23, 42) : Color.rgb(247, 248, 251));
-        if (status != null) status.setTextColor(dark ? Color.rgb(226, 232, 240) : Color.rgb(71, 85, 105));
+        if (status != null) {
+            status.setTextColor(dark ? Color.rgb(226, 232, 240) : Color.rgb(71, 85, 105));
+            status.setBackground(roundedRect(dark ? Color.rgb(30, 41, 59) : Color.rgb(239, 246, 255), dark ? Color.rgb(51, 65, 85) : Color.rgb(191, 219, 254), 14));
+        }
+        if (authGroup != null) authGroup.setBackground(roundedRect(dark ? Color.rgb(15, 23, 42) : Color.WHITE, dark ? Color.rgb(51, 65, 85) : Color.rgb(226, 232, 240), 18));
     }
 
     private void showSecurityReport() {
@@ -359,14 +532,20 @@ public class MainActivity extends Activity {
                 .putString("username", username)
                 .putString("token", token)
                 .apply();
-            try { pullRemote(); } catch (Exception ex) { saveLocalVault(); setStatus("Signed in. Add your first login; it will sync automatically."); runOnUiThread(this::showVault); }
+            try { pullRemote(); } catch (Exception ex) { saveLocalVault(); setStatus("Signed in. Add your first login; it will sync automatically."); runOnUiThread(this::showStartupDestination); }
         });
     }
 
     private void saveLogin() {
         if (masterPassword.isEmpty()) { setStatus("Log in first."); return; }
+        String type = itemTypeInput.getSelectedItem().toString();
+        int existing = -1;
+        for (int i = 0; i < items.size(); i++) if (items.get(i).id.equals(editingId)) existing = i;
+        String now = Instant.now().toString();
+        LoginItem prior = existing >= 0 ? items.get(existing) : null;
         LoginItem item = new LoginItem(
             editingId.isEmpty() ? UUID.randomUUID().toString() : editingId,
+            type,
             titleInput.getText().toString(),
             urlInput.getText().toString(),
             loginUsernameInput.getText().toString(),
@@ -374,26 +553,45 @@ public class MainActivity extends Activity {
             otpSecretInput.getText().toString().replace(" ", ""),
             notesInput.getText().toString(),
             passkeyRpIdInput.getText().toString(),
-            passkeyCredentialIdInput.getText().toString());
-        int existing = -1;
-        for (int i = 0; i < items.size(); i++) if (items.get(i).id.equals(item.id)) existing = i;
+            passkeyCredentialIdInput.getText().toString(),
+            itemFolderInput.getText().toString(),
+            itemPinnedInput.isChecked(),
+            identityFullNameInput.getText().toString(),
+            identityEmailInput.getText().toString(),
+            identityPhoneInput.getText().toString(),
+            identityAddressInput.getText().toString(),
+            bookmarkDescriptionInput.getText().toString(),
+            prior == null ? now : prior.createdAt,
+            now,
+            prior == null ? "" : prior.lastUsedAt);
         if (existing >= 0) items.set(existing, item); else items.add(item);
         clearForm();
         try { saveLocalVault(); } catch (Exception ex) { setStatus("Local save failed: " + ex.getMessage()); }
         renderItems();
         showVault();
-        autoSync(existing >= 0 ? "Login updated. Auto-syncing…" : "Login saved. Auto-syncing…");
+        autoSync(existing >= 0 ? "Item updated. Auto-syncing…" : "Item saved. Auto-syncing…");
     }
 
     private void clearForm() {
         editingId = "";
+        itemTypeInput.setSelection(0);
+        itemFolderInput.setText("");
+        itemPinnedInput.setChecked(false);
         titleInput.setText(""); urlInput.setText(""); loginUsernameInput.setText(""); loginPasswordInput.setText("");
+        identityFullNameInput.setText(""); identityEmailInput.setText(""); identityPhoneInput.setText(""); identityAddressInput.setText("");
+        bookmarkDescriptionInput.setText("");
         otpSecretInput.setText(""); notesInput.setText(""); passkeyRpIdInput.setText(""); passkeyCredentialIdInput.setText("");
     }
 
     private void editLogin(LoginItem item) {
         editingId = item.id;
+        String[] types = new String[] { "login", "identity", "note", "bookmark", "passkey" };
+        for (int i = 0; i < types.length; i++) if (types[i].equals(item.type)) itemTypeInput.setSelection(i);
+        itemFolderInput.setText(item.folder);
+        itemPinnedInput.setChecked(item.pinned);
         titleInput.setText(item.title); urlInput.setText(item.url); loginUsernameInput.setText(item.username); loginPasswordInput.setText(item.password);
+        identityFullNameInput.setText(item.identityFullName); identityEmailInput.setText(item.identityEmail); identityPhoneInput.setText(item.identityPhone); identityAddressInput.setText(item.identityAddress);
+        bookmarkDescriptionInput.setText(item.bookmarkDescription);
         otpSecretInput.setText(item.otpSecret); notesInput.setText(item.notes); passkeyRpIdInput.setText(item.passkeyRpId); passkeyCredentialIdInput.setText(item.passkeyCredentialId);
         setStatus("Editing " + item.title + ".");
         showForm();
@@ -408,23 +606,81 @@ public class MainActivity extends Activity {
     private void renderItems() {
         list.removeAllViews();
         String q = searchInput == null ? "" : searchInput.getText().toString().trim().toLowerCase();
-        if (items.isEmpty()) { list.addView(label("No logins yet. Tap + Add to add one.", 15)); return; }
+        if (items.isEmpty()) { list.addView(label("No saved items yet. Tap + Add to add one.", 15)); return; }
         int shown = 0;
         for (LoginItem item : new ArrayList<>(items)) {
-            String haystack = (item.title + " " + item.url + " " + item.username + " " + item.notes).toLowerCase();
+            String haystack = (item.type + " " + item.title + " " + item.url + " " + item.username + " " + item.notes + " " + item.folder + " " + item.identityFullName + " " + item.identityEmail + " " + item.identityPhone + " " + item.identityAddress + " " + item.bookmarkDescription).toLowerCase();
             if (!q.isEmpty() && !haystack.contains(q)) continue;
             shown++;
-            TextView row = label(item.title + "\n" + item.url + "\n" + item.username + (item.otpSecret.isEmpty() ? "" : "\nOTP enabled") + (item.passkeyCredentialId.isEmpty() ? "" : "\nPasskey: " + item.passkeyRpId), 15);
-            Button view = button((revealedPasswords.contains(item.id) ? "Hide " : "View ") + item.title, v -> { if (revealedPasswords.contains(item.id)) revealedPasswords.remove(item.id); else revealedPasswords.add(item.id); renderItems(); });
-            if (revealedPasswords.contains(item.id)) list.addView(label("Password: " + item.password, 14));
+            String summary;
+            if ("identity".equals(item.type)) summary = item.identityFullName + "\n" + item.identityEmail + "\n" + item.identityPhone;
+            else if ("note".equals(item.type)) summary = item.notes.isEmpty() ? "Encrypted note" : item.notes;
+            else if ("bookmark".equals(item.type)) summary = item.url + (item.bookmarkDescription.isEmpty() ? "" : "\n" + item.bookmarkDescription);
+            else summary = item.url + "\n" + item.username + (item.otpSecret.isEmpty() ? "" : "\nOTP enabled") + (item.passkeyCredentialId.isEmpty() ? "" : "\nPasskey: " + item.passkeyRpId);
+            TextView row = label(item.title + "\n" + summary + (item.folder.isEmpty() ? "" : "\nFolder: " + item.folder) + (item.pinned ? "\nPinned" : ""), 15);
+            list.addView(row);
+            if (revealedPasswords.contains(item.id)) list.addView(label(secretText(item), 14));
+            Button view = button((revealedPasswords.contains(item.id) ? "Hide " : "View ") + item.title, v -> { if (revealedPasswords.contains(item.id)) revealedPasswords.remove(item.id); else revealedPasswords.add(item.id); if ("login".equals(item.type) || "passkey".equals(item.type)) markLastUsed(item.id); renderItems(); });
             Button edit = button("Edit " + item.title, v -> editLogin(item));
             Button delete = button("Delete " + item.title, v -> { items.remove(item); revealedPasswords.remove(item.id); try { saveLocalVault(); } catch (Exception ignored) {} renderItems(); autoSync("Deleted. Auto-syncing…"); });
-            list.addView(row);
             list.addView(view);
+            edit.setText("Edit " + item.title);
             list.addView(edit);
             list.addView(delete);
+            if (!item.otpSecret.isEmpty()) list.addView(button("Show OTP", v -> setStatus("OTP for " + item.title + ": " + generateTotp(item.otpSecret))));
         }
-        if (shown == 0) list.addView(label("No matching logins.", 15));
+        if (shown == 0) list.addView(label("No matching items.", 15));
+    }
+
+    private String secretText(LoginItem item) {
+        if ("identity".equals(item.type)) return "Full name: " + item.identityFullName + "\nEmail: " + item.identityEmail + "\nPhone: " + item.identityPhone + "\nAddress: " + item.identityAddress;
+        if ("note".equals(item.type)) return "Safenote:\n" + item.notes;
+        if ("bookmark".equals(item.type)) return "Bookmark: " + item.url + "\n" + item.bookmarkDescription;
+        return "Password: " + item.password;
+    }
+
+    private void markLastUsed(String id) {
+        String now = Instant.now().toString();
+        for (int i = 0; i < items.size(); i++) {
+            LoginItem item = items.get(i);
+            if (item.id.equals(id)) {
+                items.set(i, item.withLastUsedAt(now));
+                break;
+            }
+        }
+    }
+
+    private String generateTotp(String base32) {
+        byte[] key = base32Decode(base32);
+        long counter = System.currentTimeMillis() / 1000L / 30L;
+        byte[] msg = new byte[8];
+        for (int i = 7; i >= 0; i--) { msg[i] = (byte)(counter & 0xff); counter >>>= 8; }
+        try {
+            javax.crypto.Mac hmac = javax.crypto.Mac.getInstance("HmacSHA1");
+            hmac.init(new javax.crypto.spec.SecretKeySpec(key, "HmacSHA1"));
+            byte[] hash = hmac.doFinal(msg);
+            int offset = hash[hash.length - 1] & 0x0f;
+            int code = ((hash[offset] & 0x7f) << 24) | ((hash[offset + 1] & 0xff) << 16) | ((hash[offset + 2] & 0xff) << 8) | (hash[offset + 3] & 0xff);
+            return String.format("%06d", code % 1_000_000);
+        } catch (Exception ex) {
+            return "OTP unavailable";
+        }
+    }
+
+    private byte[] base32Decode(String input) {
+        final String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        String upper = input.toUpperCase();
+        StringBuilder bits = new StringBuilder();
+        for (int i = 0; i < upper.length(); i++) {
+            char ch = upper.charAt(i);
+            int idx = alphabet.indexOf(ch);
+            if (idx >= 0) bits.append(String.format("%5s", Integer.toBinaryString(idx)).replace(' ', '0'));
+        }
+        ArrayList<Byte> bytes = new ArrayList<>();
+        for (int i = 0; i + 8 <= bits.length(); i += 8) bytes.add((byte) Integer.parseInt(bits.substring(i, i + 8), 2));
+        byte[] out = new byte[bytes.size()];
+        for (int i = 0; i < bytes.size(); i++) out[i] = bytes.get(i);
+        return out;
     }
 
     private void pullRemote() throws Exception {
@@ -436,7 +692,7 @@ public class MainActivity extends Activity {
         LocalAutofillStore.save(this, vaultJson());
         renderOnUi();
         setStatus("Pulled revision " + revision + ".");
-        runOnUiThread(this::showVault);
+        runOnUiThread(this::showStartupDestination);
     }
 
     private void pushRemote() throws Exception {
@@ -505,6 +761,8 @@ public class MainActivity extends Activity {
         connection.setReadTimeout(12000);
         connection.setRequestMethod(method);
         connection.setRequestProperty("Accept", "application/json");
+        connection.setRequestProperty("X-OpenFormVault-Device-Id", deviceId());
+        connection.setRequestProperty("X-OpenFormVault-Device-Name", deviceName());
         if (auth) connection.setRequestProperty("Authorization", "Bearer " + token);
         if (body != null) {
             connection.setDoOutput(true);
@@ -522,6 +780,32 @@ public class MainActivity extends Activity {
     }
 
     private String serverUrl() { return serverUrlInput.getText().toString().trim().replaceAll("/+$", ""); }
+    private String deviceId() {
+        String existing = getPreferences(MODE_PRIVATE).getString("deviceId", "");
+        if (!existing.isEmpty()) return existing;
+        String androidId = Secure.getString(getContentResolver(), Secure.ANDROID_ID);
+        String stable = UUID.nameUUIDFromBytes((androidId + ":openformvault").getBytes(StandardCharsets.UTF_8)).toString();
+        getPreferences(MODE_PRIVATE).edit().putString("deviceId", stable).apply();
+        return stable;
+    }
+    private String deviceName() {
+        String existing = getPreferences(MODE_PRIVATE).getString("deviceName", "");
+        if (!existing.isEmpty()) return existing;
+        String value = android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL;
+        getPreferences(MODE_PRIVATE).edit().putString("deviceName", value).apply();
+        return value;
+    }
+    private void showTrustedDevices() throws Exception {
+        JSONObject response = request("GET", "/v1/devices", null, true);
+        JSONArray devices = response.optJSONArray("devices");
+        if (devices == null || devices.length() == 0) { setStatus("No trusted devices yet."); return; }
+        List<String> names = new ArrayList<>();
+        for (int i = 0; i < devices.length(); i++) {
+            JSONObject device = devices.getJSONObject(i);
+            names.add(device.optString("deviceName") + (device.optBoolean("current") ? " (this device)" : ""));
+        }
+        setStatus("Trusted devices: " + String.join(", ", names));
+    }
     private void setStatus(String text) { runOnUiThread(() -> status.setText(text)); }
     private void renderOnUi() { runOnUiThread(this::renderItems); }
     private void runAsync(ThrowingRunnable runnable) { new Thread(() -> { try { runnable.run(); } catch (Exception ex) { setStatus(ex.getMessage()); } }).start(); }
@@ -529,18 +813,33 @@ public class MainActivity extends Activity {
     interface ThrowingRunnable { void run() throws Exception; }
 
     static final class LoginItem {
-        final String id, title, url, username, password, otpSecret, notes, passkeyRpId, passkeyCredentialId;
-        LoginItem(String id, String title, String url, String username, String password, String otpSecret, String notes, String passkeyRpId, String passkeyCredentialId) {
-            this.id = id; this.title = title; this.url = url; this.username = username; this.password = password; this.otpSecret = otpSecret; this.notes = notes; this.passkeyRpId = passkeyRpId; this.passkeyCredentialId = passkeyCredentialId;
+        final String id, type, title, url, username, password, otpSecret, notes, passkeyRpId, passkeyCredentialId, folder, identityFullName, identityEmail, identityPhone, identityAddress, bookmarkDescription, createdAt, updatedAt, lastUsedAt;
+        final boolean pinned;
+        LoginItem(String id, String type, String title, String url, String username, String password, String otpSecret, String notes, String passkeyRpId, String passkeyCredentialId, String folder, boolean pinned, String identityFullName, String identityEmail, String identityPhone, String identityAddress, String bookmarkDescription, String createdAt, String updatedAt, String lastUsedAt) {
+            this.id = id; this.type = type; this.title = title; this.url = url; this.username = username; this.password = password; this.otpSecret = otpSecret; this.notes = notes; this.passkeyRpId = passkeyRpId; this.passkeyCredentialId = passkeyCredentialId; this.folder = folder; this.pinned = pinned; this.identityFullName = identityFullName; this.identityEmail = identityEmail; this.identityPhone = identityPhone; this.identityAddress = identityAddress; this.bookmarkDescription = bookmarkDescription; this.createdAt = createdAt; this.updatedAt = updatedAt; this.lastUsedAt = lastUsedAt;
         }
         JSONObject toJson() throws Exception {
-            JSONObject json = new JSONObject().put("id", id).put("title", title).put("url", url).put("username", username).put("password", password).put("otpSecret", otpSecret).put("notes", notes);
+            JSONObject json = new JSONObject().put("id", id).put("type", type).put("title", title).put("url", url).put("username", username).put("password", password).put("otpSecret", otpSecret).put("notes", notes).put("folder", folder).put("pinned", pinned).put("createdAt", createdAt).put("updatedAt", updatedAt).put("lastUsedAt", lastUsedAt);
+            json.put("identity", new JSONObject().put("fullName", identityFullName).put("email", identityEmail).put("phone", identityPhone).put("address", identityAddress));
+            json.put("bookmark", new JSONObject().put("url", url).put("description", bookmarkDescription));
             if (!passkeyRpId.isEmpty() || !passkeyCredentialId.isEmpty()) json.put("passkey", new JSONObject().put("rpId", passkeyRpId).put("credentialId", passkeyCredentialId).put("userHandle", ""));
             return json;
         }
+        LoginItem withLastUsedAt(String when) {
+            return new LoginItem(id, type, title, url, username, password, otpSecret, notes, passkeyRpId, passkeyCredentialId, folder, pinned, identityFullName, identityEmail, identityPhone, identityAddress, bookmarkDescription, createdAt, updatedAt, when);
+        }
         static LoginItem fromJson(JSONObject json) {
             JSONObject passkey = json.optJSONObject("passkey");
-            return new LoginItem(json.optString("id"), json.optString("title"), json.optString("url"), json.optString("username"), json.optString("password"), json.optString("otpSecret"), json.optString("notes"), passkey == null ? "" : passkey.optString("rpId"), passkey == null ? "" : passkey.optString("credentialId"));
+            JSONObject identity = json.optJSONObject("identity");
+            JSONObject bookmark = json.optJSONObject("bookmark");
+            return new LoginItem(json.optString("id"), json.optString("type", inferLegacyType(json)), json.optString("title"), json.optString("url"), json.optString("username"), json.optString("password"), json.optString("otpSecret"), json.optString("notes"), passkey == null ? "" : passkey.optString("rpId"), passkey == null ? "" : passkey.optString("credentialId"), json.optString("folder"), json.optBoolean("pinned"), identity == null ? json.optString("fullName") : identity.optString("fullName"), identity == null ? json.optString("email") : identity.optString("email"), identity == null ? json.optString("phone") : identity.optString("phone"), identity == null ? json.optString("address") : identity.optString("address"), bookmark == null ? json.optString("description") : bookmark.optString("description"), json.optString("createdAt", Instant.now().toString()), json.optString("updatedAt", Instant.now().toString()), json.optString("lastUsedAt", ""));
+        }
+        private static String inferLegacyType(JSONObject json) {
+            if (json.has("identity") || json.has("fullName") || json.has("email") || json.has("phone") || json.has("address")) return "identity";
+            if ((json.optString("notes").length() > 0) && json.optString("url").isEmpty() && json.optString("username").isEmpty() && json.optString("password").isEmpty()) return "note";
+            if (json.has("bookmark") || (!json.optString("url").isEmpty() && json.optString("username").isEmpty() && json.optString("password").isEmpty() && json.optString("description").length() > 0)) return "bookmark";
+            if (json.has("passkey")) return "passkey";
+            return "login";
         }
     }
 }

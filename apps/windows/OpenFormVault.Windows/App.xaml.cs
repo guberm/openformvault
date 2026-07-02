@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Microsoft.UI.Xaml;
 
@@ -7,6 +8,7 @@ namespace OpenFormVault.Windows;
 public partial class App : Application
 {
     private Window? _window;
+    public LocalSettingsStore LocalSettings { get; } = new();
 
     public App()
     {
@@ -39,5 +41,37 @@ public partial class App : Application
     {
         Directory.CreateDirectory(Path.GetDirectoryName(LogPath)!);
         File.AppendAllText(LogPath, message);
+    }
+}
+
+public sealed class LocalSettingsStore
+{
+    private readonly string _path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenFormVault", "settings.json");
+    public Dictionary<string, string> Values { get; }
+
+    public LocalSettingsStore()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        if (File.Exists(_path))
+        {
+            try
+            {
+                Values = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(File.ReadAllText(_path)) ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                Values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+        }
+        else
+        {
+            Values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public void Save()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        File.WriteAllText(_path, System.Text.Json.JsonSerializer.Serialize(Values));
     }
 }

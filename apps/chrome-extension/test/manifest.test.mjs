@@ -52,9 +52,20 @@ test('auth screen shows server, registration confirmation, and eye password cont
 
 test('popup exposes local security report and theme controls', () => {
   assert.match(popupHtml, /id="theme-mode"/);
+  assert.match(popupHtml, /id="startup-screen"/);
+  assert.match(popupHtml, /id="auto-lock"/);
+  assert.match(popupHtml, /id="trusted-devices-refresh"/);
+  assert.match(popupHtml, /data-filter="identity"/);
+  assert.match(popupHtml, /data-filter="note"/);
+  assert.match(popupHtml, /data-filter="bookmark"/);
+  assert.match(popupHtml, /id="item-type"/);
+  assert.match(popupHtml, /id="item-folder"/);
+  assert.match(popupHtml, /id="item-pinned"/);
   assert.match(popupHtml, /<option>System<\/option><option>Light<\/option><option>Dark<\/option>/);
   assert.match(popupHtml, /id="security-report"/);
   assert.match(popupSource, /function securityReport\(\)/);
+  assert.match(popupSource, /function scheduleAutoLock\(\)/);
+  assert.match(popupSource, /function loadTrustedDevices\(\)/);
   assert.match(popupSource, /Weak passwords|Missing OTP|HTTP-only sites/);
 });
 
@@ -62,4 +73,11 @@ test('server accepts idempotent retry of a previously successful snapshot PUT', 
   assert.match(serverSource, /isRetryOfPreviousSuccess/);
   assert.match(serverSource, /idempotent = true/);
   assert.match(serverSource, /request\.BaseRevision\.Value \+ 1 == currentRevision/);
+});
+
+test('server tracks trusted devices from request headers', () => {
+  assert.match(serverSource, /MapGet\("\/v1\/devices"/);
+  assert.match(serverSource, /MapDelete\("\/v1\/devices\/\{deviceId:guid\}"/);
+  assert.match(serverSource, /X-OpenFormVault-Device-Id/);
+  assert.match(serverSource, /trusted_devices/);
 });

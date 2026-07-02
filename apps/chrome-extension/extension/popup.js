@@ -9,13 +9,27 @@ const visibleSecrets = new Set();
 let activeFilter = 'login';
 let authMode = 'login';
 
-let session = { serverUrl: '', username: '', token: '', masterPassword: '', vault: { items: [] }, revision: 0 };
+const ITEM_TYPES = [
+  { id: 'login', label: 'Logins' },
+  { id: 'identity', label: 'Identities' },
+  { id: 'note', label: 'Safenotes' },
+  { id: 'bookmark', label: 'Bookmarks' },
+  { id: 'passkey', label: 'Passkeys' },
+  { id: 'otp', label: 'Authenticator' }
+];
+const STARTUP_OPTIONS = ['Vault', 'Add item', 'Settings'];
+const AUTO_LOCK_OPTIONS = ['Off', '30 sec', '1 min', '5 min'];
+
+let session = { serverUrl: '', username: '', token: '', masterPassword: '', vault: { items: [] }, revision: 0, deviceId: '', deviceName: '', trustedDevices: [] };
 let autoSyncTimer = null;
+let autoLockTimer = null;
 
 function setStatus(message) { status.textContent = message; }
 function setSyncState(message, kind = '') { syncState.textContent = message; syncState.className = `sync-pill ${kind}`.trim(); }
 function normalizeServerUrl() { return $('server-url').value.trim().replace(/\/+$/, ''); }
 function uuid() { return crypto.randomUUID(); }
+function selectedStartupScreen() { return $('startup-screen')?.value || 'Vault'; }
+function selectedAutoLock() { return $('auto-lock')?.value || 'Off'; }
 function encUtf8(value) { return new TextEncoder().encode(value); }
 function decUtf8(value) { return new TextDecoder().decode(value); }
 function b64(bytes) { return btoa(String.fromCharCode(...new Uint8Array(bytes))); }
@@ -24,17 +38,39 @@ function escapeHtml(value) { return String(value ?? '').replace(/[&<>'"]/g, c =>
 function normalizeItem(item) {
   return {
     id: item.id || uuid(),
-    type: item.type || 'login',
-    title: item.title || item.name || item.url || item.username || 'Untitled login',
+    type: item.type || inferType(item),
+    title: item.title || item.name || item.url || item.username || typeDefaultTitle(inferType(item)),
     url: item.url || item.uri || '',
     username: item.username || item.login || '',
     password: item.password || '',
     otpSecret: item.otpSecret || item.totp || item.otp || '',
     notes: item.notes || item.note || '',
+    identity: item.identity || { fullName: item.fullName || '', email: item.email || '', phone: item.phone || '', address: item.address || '' },
+    bookmark: item.bookmark || { url: item.url || item.uri || '', description: item.description || '' },
     passkey: item.passkey || null,
     folder: item.folder || '',
-    updatedAt: item.updatedAt || new Date().toISOString()
+    pinned: Boolean(item.pinned),
+    updatedAt: item.updatedAt || new Date().toISOString(),
+    createdAt: item.createdAt || item.updatedAt || new Date().toISOString(),
+    lastUsedAt: item.lastUsedAt || null
   };
+}
+
+function inferType(item) {
+  if (item.type) return item.type;
+  if (item.passkey?.credentialId || item.passkey?.rpId) return 'passkey';
+  if (item.identity || item.fullName || item.email || item.phone || item.address) return 'identity';
+  if ((item.url || item.uri) && !item.password && !item.username && (item.description || item.notes)) return 'bookmark';
+  if ((item.notes || item.note) && !item.url && !item.password && !item.username) return 'note';
+  return 'login';
+}
+
+function typeDefaultTitle(type) {
+  if (type === 'identity') return 'Untitled identity';
+  if (type === 'note') return 'Untitled note';
+  if (type === 'bookmark') return 'Untitled bookmark';
+  if (type === 'passkey') return 'Untitled passkey';
+  return 'Untitled login';
 }
 
 async function deriveKey(password, salt, usages = ['encrypt', 'decrypt']) {
@@ -61,6 +97,8 @@ async function decryptVault(snapshot, password) {
 async function api(path, options = {}) {
   const headers = { 'content-type': 'application/json', ...(options.headers ?? {}) };
   if (session.token) headers.authorization = `Bearer ${session.token}`;
+  if (session.deviceId) headers['x-openformvault-device-id'] = session.deviceId;
+  if (session.deviceName) headers['x-openformvault-device-name'] = session.deviceName;
   const response = await fetch(`${session.serverUrl}${path}`, { ...options, headers, cache: 'no-store' });
   const text = await response.text();
   const body = text ? JSON.parse(text) : null;
@@ -69,21 +107,26 @@ async function api(path, options = {}) {
 }
 
 async function saveLocalSession(extra = {}) {
-  await chrome.storage.local.set({ serverUrl: session.serverUrl, username: session.username, token: session.token, revision: session.revision, ...extra });
+  await chrome.storage.local.set({ serverUrl: session.serverUrl, username: session.username, token: session.token, revision: session.revision, deviceId: session.deviceId, deviceName: session.deviceName, ...extra });
 }
 
 async function loadLocalSession() {
-  const stored = await chrome.storage.local.get(['serverUrl', 'username', 'token', 'revision', 'themeMode']);
+  const stored = await chrome.storage.local.get(['serverUrl', 'username', 'token', 'revision', 'themeMode', 'deviceId', 'deviceName', 'startupScreen', 'autoLock']);
   if (stored.serverUrl) $('server-url').value = stored.serverUrl;
   if (stored.username) $('username').value = stored.username;
   session.serverUrl = stored.serverUrl ?? normalizeServerUrl();
   session.username = stored.username ?? '';
   session.token = stored.token ?? '';
   session.revision = stored.revision ?? 0;
+  session.deviceId = stored.deviceId || crypto.randomUUID();
+  session.deviceName = stored.deviceName || `Chrome on ${navigator.platform}`;
+  $('startup-screen').value = STARTUP_OPTIONS.includes(stored.startupScreen) ? stored.startupScreen : 'Vault';
+  $('auto-lock').value = AUTO_LOCK_OPTIONS.includes(stored.autoLock) ? stored.autoLock : 'Off';
   if (stored.themeMode) $('theme-mode').value = stored.themeMode;
   applyTheme($('theme-mode')?.value || stored.themeMode || 'System');
   updateRevision();
   setSyncState(session.token ? 'signed in' : 'offline', session.token ? 'ok' : '');
+  await saveLocalSession({ startupScreen: $('startup-screen').value, autoLock: $('auto-lock').value });
   await renderPendingSaveCandidate();
 }
 
@@ -116,8 +159,55 @@ function securityReport() {
 }
 
 function updateRevision() { revisionLabel.textContent = session.revision ? `Synced revision ${session.revision}` : 'Ready to sync'; }
-function showVault() { authSection.hidden = true; vaultSection.hidden = false; $('item-form').hidden = true; $('settings-panel').hidden = true; updateRevision(); renderItems(); }
-function showAuth() { vaultSection.hidden = true; authSection.hidden = false; }
+function showVault() { authSection.hidden = true; vaultSection.hidden = false; $('item-form').hidden = true; $('settings-panel').hidden = true; updateRevision(); scheduleAutoLock(); renderItems(); }
+function showAuth() { vaultSection.hidden = true; authSection.hidden = false; clearAutoLock(); }
+function showStartupDestination() {
+  const startup = selectedStartupScreen();
+  if (startup === 'Add item') { clearForm(); $('item-form').hidden = false; $('settings-panel').hidden = true; showVault(); $('item-form').hidden = false; return; }
+  if (startup === 'Settings') { showVault(); $('settings-panel').hidden = false; return; }
+  showVault();
+}
+function clearAutoLock() {
+  if (autoLockTimer) clearTimeout(autoLockTimer);
+  autoLockTimer = null;
+}
+function autoLockDelayMs() {
+  const autoLock = selectedAutoLock();
+  if (autoLock === '30 sec') return 30000;
+  if (autoLock === '1 min') return 60000;
+  if (autoLock === '5 min') return 300000;
+  return 0;
+}
+function scheduleAutoLock() {
+  clearAutoLock();
+  const delay = autoLockDelayMs();
+  if (!delay || !session.token) return;
+  autoLockTimer = setTimeout(() => {
+    session.masterPassword = '';
+    session.token = '';
+    session.vault = { items: [] };
+    setStatus('Auto-locked after inactivity.');
+    setSyncState('offline');
+    showAuth();
+  }, delay);
+}
+async function saveStartupPreference() {
+  await chrome.storage.local.set({ startupScreen: selectedStartupScreen() });
+  setStatus(`Startup screen set to ${selectedStartupScreen()}.`);
+}
+async function saveAutoLockPreference() {
+  await chrome.storage.local.set({ autoLock: selectedAutoLock() });
+  scheduleAutoLock();
+  setStatus(`Auto-lock set to ${selectedAutoLock()}.`);
+}
+async function loadTrustedDevices() {
+  if (!session.token) { $('trusted-devices-result').textContent = 'Sign in first.'; return; }
+  const response = await api('/v1/devices');
+  session.trustedDevices = response.devices || [];
+  $('trusted-devices-result').textContent = session.trustedDevices.length
+    ? session.trustedDevices.map(device => `${device.deviceName}${device.current ? ' (this device)' : ''}`).join('\n')
+    : 'No trusted devices yet.';
+}
 function setAuthMode(mode) {
   authMode = mode;
   const register = mode === 'register';
@@ -131,15 +221,18 @@ function setAuthMode(mode) {
 function togglePassword(inputId, buttonId) { const input = $(inputId); input.type = input.type === 'password' ? 'text' : 'password'; $(buttonId).textContent = input.type === 'password' ? '👁' : '🙈'; }
 
 function matchesFilter(item) {
+  if (activeFilter === 'identity') return item.type === 'identity';
+  if (activeFilter === 'note') return item.type === 'note';
+  if (activeFilter === 'bookmark') return item.type === 'bookmark';
   if (activeFilter === 'otp') return Boolean(item.otpSecret);
   if (activeFilter === 'passkey') return Boolean(item.passkey?.credentialId || item.passkey?.rpId);
-  return true;
+  return item.type === 'login';
 }
 
 function matchesSearch(item) {
   const q = ($('vault-search')?.value || '').trim().toLowerCase();
   if (!q) return true;
-  return [item.title, item.url, item.username, item.folder, item.notes].some(value => String(value || '').toLowerCase().includes(q));
+  return [item.title, item.url, item.username, item.folder, item.notes, item.identity?.fullName, item.identity?.email, item.identity?.phone, item.identity?.address, item.bookmark?.description].some(value => String(value || '').toLowerCase().includes(q));
 }
 
 function renderItems() {
@@ -159,22 +252,31 @@ function renderItems() {
     const secretVisible = visibleSecrets.has(item.id);
     const otpBadge = item.otpSecret ? '<span class="badge">OTP</span>' : '';
     const passkeyBadge = item.passkey?.credentialId ? '<span class="badge">Passkey</span>' : '';
+    const pinnedBadge = item.pinned ? '<span class="badge">Pinned</span>' : '';
+    const typeLabel = item.type === 'identity' ? 'Identity' : item.type === 'note' ? 'Safenote' : item.type === 'bookmark' ? 'Bookmark' : item.type === 'passkey' ? 'Passkey' : 'Login';
+    const summary = item.type === 'identity'
+      ? `${item.identity?.fullName || ''} ${item.identity?.email || ''} ${item.identity?.phone || ''}`.trim()
+      : item.type === 'note'
+        ? (item.notes || 'Encrypted note')
+        : item.type === 'bookmark'
+          ? `${item.bookmark?.url || item.url} ${item.bookmark?.description || ''}`.trim()
+          : `${item.url} ${item.username}`.trim();
     div.innerHTML = `
       <div class="item-head">
         <div>
           <strong>${escapeHtml(item.title)}</strong>
-          <small>${escapeHtml(item.url)} ${escapeHtml(item.username)}</small>
-          <div>${otpBadge}${passkeyBadge}${item.folder ? `<span class="badge">${escapeHtml(item.folder)}</span>` : ''}</div>
+          <small>${escapeHtml(summary)}</small>
+          <div><span class="badge">${typeLabel}</span>${otpBadge}${passkeyBadge}${pinnedBadge}${item.folder ? `<span class="badge">${escapeHtml(item.folder)}</span>` : ''}</div>
         </div>
       </div>
       <div class="secret" hidden></div>
       <div class="item-actions"></div>`;
     const secret = div.querySelector('.secret');
     secret.hidden = !secretVisible;
-    secret.textContent = secretVisible ? `Password: ${item.password || '(empty)'}` : '';
+    secret.textContent = secretVisible ? secretText(item) : '';
     const row = div.querySelector('.item-actions');
+    if (item.type === 'login' || item.type === 'passkey') row.append(actionButton('Fill', () => fillLogin(item), 'primary small'));
     row.append(
-      actionButton('Fill', () => fillLogin(item), 'primary small'),
       actionButton(secretVisible ? 'Hide' : 'View', () => { secretVisible ? visibleSecrets.delete(item.id) : visibleSecrets.add(item.id); renderItems(); }, 'secondary small'),
       actionButton('Edit', () => startEdit(item), 'ghost small'),
       actionButton('Delete', () => deleteItem(item), 'danger small')
@@ -182,6 +284,15 @@ function renderItems() {
     if (item.otpSecret) row.append(actionButton('Copy OTP', async () => copyOtp(item), 'secondary small'));
     itemsEl.append(div);
   }
+}
+
+function secretText(item) {
+  if (item.type === 'identity') {
+    return `Full name: ${item.identity?.fullName || '(empty)'}\nEmail: ${item.identity?.email || '(empty)'}\nPhone: ${item.identity?.phone || '(empty)'}\nAddress: ${item.identity?.address || '(empty)'}`;
+  }
+  if (item.type === 'note') return `Safenote:\n${item.notes || '(empty)'}`;
+  if (item.type === 'bookmark') return `Bookmark: ${item.bookmark?.url || item.url || '(empty)'}\n${item.bookmark?.description || ''}`.trim();
+  return `Password: ${item.password || '(empty)'}`;
 }
 
 function actionButton(text, handler, className = '') {
@@ -253,6 +364,7 @@ async function auth(mode) {
   session.token = result.token;
   await saveLocalSession();
   await pullVault();
+  await loadTrustedDevices();
 }
 
 async function checkHealth() {
@@ -266,6 +378,8 @@ async function checkHealth() {
 async function fillLogin(item) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   await chrome.tabs.sendMessage(tab.id, { type: 'OFV_FILL_LOGIN', username: item.username, password: item.password });
+  item.lastUsedAt = new Date().toISOString();
+  renderItems();
   setStatus('Fill request sent to current tab.');
 }
 
@@ -299,11 +413,13 @@ async function dismissPendingCandidate() {
 }
 
 function readForm() {
+  const type = $('item-type').value;
   const passkey = $('item-passkey-rp-id').value.trim() || $('item-passkey-credential-id').value.trim()
     ? { rpId: $('item-passkey-rp-id').value.trim(), credentialId: $('item-passkey-credential-id').value.trim(), userHandle: '', transports: [] }
     : null;
   return normalizeItem({
     id: $('editing-id').value || uuid(),
+    type,
     title: $('item-title').value.trim(),
     url: $('item-url').value.trim(),
     username: $('item-username').value.trim(),
@@ -311,14 +427,28 @@ function readForm() {
     otpSecret: $('item-otp-secret').value.trim().replace(/\s+/g, ''),
     passkey,
     notes: $('item-notes').value,
+    folder: $('item-folder').value.trim(),
+    pinned: $('item-pinned').checked,
+    identity: {
+      fullName: $('item-full-name').value.trim(),
+      email: $('item-email').value.trim(),
+      phone: $('item-phone').value.trim(),
+      address: $('item-address').value.trim()
+    },
+    bookmark: {
+      url: $('item-url').value.trim(),
+      description: $('item-description').value.trim()
+    },
     updatedAt: new Date().toISOString()
   });
 }
 
 function clearForm() {
   $('editing-id').value = '';
-  $('item-title').value = $('item-url').value = $('item-username').value = $('item-password').value = $('item-otp-secret').value = $('item-passkey-rp-id').value = $('item-passkey-credential-id').value = $('item-notes').value = '';
-  $('form-title').textContent = 'Add login';
+  $('item-type').value = 'login';
+  $('item-title').value = $('item-url').value = $('item-username').value = $('item-password').value = $('item-otp-secret').value = $('item-passkey-rp-id').value = $('item-passkey-credential-id').value = $('item-notes').value = $('item-folder').value = $('item-full-name').value = $('item-email').value = $('item-phone').value = $('item-address').value = $('item-description').value = '';
+  $('item-pinned').checked = false;
+  $('form-title').textContent = 'Add item';
   $('save-login').textContent = 'Save';
   $('cancel-edit').hidden = true;
   $('item-form').hidden = true;
@@ -335,6 +465,7 @@ function saveLogin() {
 
 function startEdit(item) {
   $('editing-id').value = item.id;
+  $('item-type').value = item.type || 'login';
   $('item-title').value = item.title || '';
   $('item-url').value = item.url || '';
   $('item-username').value = item.username || '';
@@ -343,7 +474,14 @@ function startEdit(item) {
   $('item-passkey-rp-id').value = item.passkey?.rpId || '';
   $('item-passkey-credential-id').value = item.passkey?.credentialId || '';
   $('item-notes').value = item.notes || '';
-  $('form-title').textContent = 'Edit login';
+  $('item-folder').value = item.folder || '';
+  $('item-pinned').checked = Boolean(item.pinned);
+  $('item-full-name').value = item.identity?.fullName || '';
+  $('item-email').value = item.identity?.email || '';
+  $('item-phone').value = item.identity?.phone || '';
+  $('item-address').value = item.identity?.address || '';
+  $('item-description').value = item.bookmark?.description || '';
+  $('form-title').textContent = `Edit ${item.type || 'item'}`;
   $('save-login').textContent = 'Update';
   $('cancel-edit').hidden = false;
   $('item-form').hidden = false;
@@ -467,8 +605,11 @@ $('show-master-password').addEventListener('click', () => togglePassword('passwo
 $('show-confirm-password').addEventListener('click', () => togglePassword('confirm-password', 'show-confirm-password'));
 $('sync-pull').addEventListener('click', () => pullVault().catch(e => { setSyncState('pull error', 'error'); setStatus(e.message); }));
 $('sync-push').addEventListener('click', () => pushVault().catch(e => { setSyncState('push error', 'error'); setStatus(e.message); }));
-$('lock').addEventListener('click', () => { session.masterPassword = ''; session.token = ''; showAuth(); setStatus('Locked.'); setSyncState('offline'); });
+$('lock').addEventListener('click', () => { clearAutoLock(); session.masterPassword = ''; session.token = ''; session.vault = { items: [] }; showAuth(); setStatus('Locked.'); setSyncState('offline'); });
 $('theme-mode').addEventListener('change', () => saveTheme().catch(e => setStatus(e.message)));
+$('startup-screen').addEventListener('change', () => saveStartupPreference().catch(e => setStatus(e.message)));
+$('auto-lock').addEventListener('change', () => saveAutoLockPreference().catch(e => setStatus(e.message)));
+$('trusted-devices-refresh').addEventListener('click', () => loadTrustedDevices().catch(e => setStatus(e.message)));
 $('security-report').addEventListener('click', securityReport);
 $('save-login').addEventListener('click', saveLogin);
 $('cancel-edit').addEventListener('click', clearForm);
