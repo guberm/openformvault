@@ -7,6 +7,7 @@ const itemsEl = $('items');
 const revisionLabel = $('revision-label');
 const visibleSecrets = new Set();
 let activeFilter = 'login';
+let authMode = 'login';
 
 let session = { serverUrl: '', username: '', token: '', masterPassword: '', vault: { items: [] }, revision: 0 };
 let autoSyncTimer = null;
@@ -72,21 +73,62 @@ async function saveLocalSession(extra = {}) {
 }
 
 async function loadLocalSession() {
-  const stored = await chrome.storage.local.get(['serverUrl', 'username', 'token', 'revision']);
+  const stored = await chrome.storage.local.get(['serverUrl', 'username', 'token', 'revision', 'themeMode']);
   if (stored.serverUrl) $('server-url').value = stored.serverUrl;
   if (stored.username) $('username').value = stored.username;
   session.serverUrl = stored.serverUrl ?? normalizeServerUrl();
   session.username = stored.username ?? '';
   session.token = stored.token ?? '';
   session.revision = stored.revision ?? 0;
+  if (stored.themeMode) $('theme-mode').value = stored.themeMode;
+  applyTheme($('theme-mode')?.value || stored.themeMode || 'System');
   updateRevision();
   setSyncState(session.token ? 'signed in' : 'offline', session.token ? 'ok' : '');
   await renderPendingSaveCandidate();
 }
 
+
+function applyTheme(mode) {
+  const effective = mode === 'System' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'Dark' : 'Light') : mode;
+  document.body.dataset.theme = effective;
+}
+async function saveTheme() {
+  const mode = $('theme-mode').value;
+  await chrome.storage.local.set({ themeMode: mode });
+  applyTheme(mode);
+  setStatus(`Theme set to ${mode}.`);
+}
+function securityReport() {
+  const items = session.vault.items.map(normalizeItem);
+  const weak = items.filter(x => (x.password || '').length < 12).length;
+  const missingOtp = items.filter(x => !x.otpSecret).length;
+  const httpOnly = items.filter(x => String(x.url || '').toLowerCase().startsWith('http://')).length;
+  const counts = new Map();
+  for (const item of items) if (item.password) counts.set(item.password, (counts.get(item.password) || 0) + 1);
+  const reused = [...counts.values()].filter(x => x > 1).reduce((a, b) => a + b, 0);
+  const duplicateKeys = new Set();
+  let duplicateCredentials = 0;
+  for (const item of items) {
+    const key = `${item.url}|${item.username}`.toLowerCase();
+    if (duplicateKeys.has(key)) duplicateCredentials++; else duplicateKeys.add(key);
+  }
+  $('security-result').textContent = [`Items: ${items.length}`, `Weak passwords: ${weak}`, `Reused passwords: ${reused}`, `HTTP-only sites: ${httpOnly}`, `Missing OTP: ${missingOtp}`, `Duplicate URL+username: ${duplicateCredentials}`].join('\n');
+}
+
 function updateRevision() { revisionLabel.textContent = session.revision ? `Synced revision ${session.revision}` : 'Ready to sync'; }
 function showVault() { authSection.hidden = true; vaultSection.hidden = false; $('item-form').hidden = true; $('settings-panel').hidden = true; updateRevision(); renderItems(); }
 function showAuth() { vaultSection.hidden = true; authSection.hidden = false; }
+function setAuthMode(mode) {
+  authMode = mode;
+  const register = mode === 'register';
+  $('auth-title').textContent = register ? 'Create your OpenFormVault account' : 'Sign in to OpenFormVault';
+  $('confirm-password-row').hidden = !register;
+  $('login').hidden = register;
+  $('back-to-login').hidden = !register;
+  $('register').textContent = register ? 'Create account' : 'Create account';
+  $('password').autocomplete = register ? 'new-password' : 'current-password';
+}
+function togglePassword(inputId, buttonId) { const input = $(inputId); input.type = input.type === 'password' ? 'text' : 'password'; $(buttonId).textContent = input.type === 'password' ? '👁' : '🙈'; }
 
 function matchesFilter(item) {
   if (activeFilter === 'otp') return Boolean(item.otpSecret);
@@ -203,6 +245,7 @@ async function auth(mode) {
   session.serverUrl = normalizeServerUrl();
   session.username = $('username').value.trim();
   session.masterPassword = $('password').value;
+  if (mode === 'register' && session.masterPassword !== $('confirm-password').value) throw new Error('Passwords do not match.');
   const result = await api(mode === 'register' ? '/v1/users/register' : '/v1/session', {
     method: 'POST',
     body: JSON.stringify({ username: session.username, password: session.masterPassword })
@@ -417,12 +460,16 @@ async function copyOtp(item) {
 }
 
 $('health-check').addEventListener('click', () => checkHealth().catch(e => setStatus(e.message)));
-$('register').addEventListener('click', () => auth('register').catch(e => setStatus(e.message)));
+$('register').addEventListener('click', () => { if (authMode !== 'register') { setAuthMode('register'); return; } auth('register').catch(e => setStatus(e.message)); });
 $('login').addEventListener('click', () => auth('login').catch(e => setStatus(e.message)));
-$('show-master-password').addEventListener('change', event => { $('password').type = event.target.checked ? 'text' : 'password'; });
+$('back-to-login').addEventListener('click', () => setAuthMode('login'));
+$('show-master-password').addEventListener('click', () => togglePassword('password', 'show-master-password'));
+$('show-confirm-password').addEventListener('click', () => togglePassword('confirm-password', 'show-confirm-password'));
 $('sync-pull').addEventListener('click', () => pullVault().catch(e => { setSyncState('pull error', 'error'); setStatus(e.message); }));
 $('sync-push').addEventListener('click', () => pushVault().catch(e => { setSyncState('push error', 'error'); setStatus(e.message); }));
 $('lock').addEventListener('click', () => { session.masterPassword = ''; session.token = ''; showAuth(); setStatus('Locked.'); setSyncState('offline'); });
+$('theme-mode').addEventListener('change', () => saveTheme().catch(e => setStatus(e.message)));
+$('security-report').addEventListener('click', securityReport);
 $('save-login').addEventListener('click', saveLogin);
 $('cancel-edit').addEventListener('click', clearForm);
 $('add-login').addEventListener('click', () => { clearForm(); $('item-form').hidden = false; $('settings-panel').hidden = true; });
@@ -442,4 +489,5 @@ $('import-commit').addEventListener('click', () => commitImport().catch(e => set
 $('save-detected-login').addEventListener('click', () => savePendingCandidate().catch(e => setStatus(e.message)));
 $('dismiss-detected-login').addEventListener('click', () => dismissPendingCandidate().catch(e => setStatus(e.message)));
 
+setAuthMode('login');
 await loadLocalSession();

@@ -18,21 +18,25 @@
 
     <section id="auth" class="screen auth-screen">
       <div class="hero-card">
-        <h2>Your private password vault</h2>
+        <h2 id="auth-title">Sign in to OpenFormVault</h2>
         <p>Save logins locally, sync encrypted data across your devices, and fill sign-in forms from Chrome.</p>
       </div>
+      <label>Server <input id="server-url" type="url" value="https://openformvault.guber.dev" autocomplete="url"></label>
       <label>Email or username <input id="username" type="text" autocomplete="username" placeholder="you@example.com"></label>
-      <label>Master password <input id="password" type="password" autocomplete="current-password" placeholder="••••••••••••"></label>
-      <label class="check-row"><input id="show-master-password" type="checkbox"> Show password</label>
+      <label class="password-field">
+        Master password
+        <span><input id="password" type="password" autocomplete="current-password" placeholder="••••••••••••"><button id="show-master-password" type="button" class="eye-button" aria-label="Show password">👁</button></span>
+      </label>
+      <label id="confirm-password-row" class="password-field" hidden>
+        Confirm master password
+        <span><input id="confirm-password" type="password" autocomplete="new-password" placeholder="Repeat password"><button id="show-confirm-password" type="button" class="eye-button" aria-label="Show confirm password">👁</button></span>
+      </label>
       <div class="primary-actions">
         <button id="login" class="primary">Log in</button>
         <button id="register" class="secondary">Create account</button>
+        <button id="back-to-login" class="ghost" hidden>Back</button>
       </div>
-      <details class="advanced-auth">
-        <summary>Server settings</summary>
-        <label>Server URL <input id="server-url" type="url" value="https://openformvault.guber.dev"></label>
-        <button id="health-check" class="ghost">Test connection</button>
-      </details>
+      <button id="health-check" class="ghost server-check">Test connection</button>
     </section>
 
     <section id="vault" class="screen vault-screen" hidden>
@@ -112,6 +116,16 @@
           <span>Account</span>
           <button id="lock" class="secondary small">Lock</button>
         </div>
+        <div class="settings-row">
+          <span>Theme</span>
+          <select id="theme-mode"><option>System</option><option>Light</option><option>Dark</option></select>
+        </div>
+        <details>
+          <summary>Security report</summary>
+          <p class="hint">Local-only checks over decrypted vault items.</p>
+          <button id="security-report" class="secondary small">Run report</button>
+          <pre id="security-result"></pre>
+        </details>
         <details>
           <summary>Import from RoboForm or CSV</summary>
           <p class="hint">Paste a RoboForm CSV export or choose a CSV file. Import stays local first, then syncs encrypted vault data.</p>

@@ -144,13 +144,45 @@ app.MapPut("/v1/vault/snapshot", async (HttpRequest http, VaultSnapshotRequest r
     await using var tx = await db.OpenConnectionAsync();
     await using var transaction = await tx.BeginTransactionAsync();
 
-    await using (var lockCommand = new NpgsqlCommand("select revision from vault_snapshots where user_id = $1 for update", tx, transaction))
+    await using (var lockCommand = new NpgsqlCommand("""
+        select revision, ciphertext, nonce, salt, algorithm, kdf
+        from vault_snapshots where user_id = $1 for update
+        """, tx, transaction))
     {
         lockCommand.Parameters.AddWithValue(user.UserId);
-        var current = await lockCommand.ExecuteScalarAsync();
-        var currentRevision = current is null ? 0L : (long)current;
+        long currentRevision = 0;
+        string? currentCiphertext = null;
+        string? currentNonce = null;
+        string? currentSalt = null;
+        string? currentAlgorithm = null;
+        string? currentKdf = null;
+        await using (var currentReader = await lockCommand.ExecuteReaderAsync())
+        {
+            if (await currentReader.ReadAsync())
+            {
+                currentRevision = currentReader.GetInt64(0);
+                currentCiphertext = currentReader.GetString(1);
+                currentNonce = currentReader.GetString(2);
+                currentSalt = currentReader.GetString(3);
+                currentAlgorithm = currentReader.GetString(4);
+                currentKdf = currentReader.GetString(5);
+            }
+        }
+        var requestedAlgorithm = request.Algorithm ?? "AES-GCM";
+        var requestedKdf = request.Kdf ?? "PBKDF2-SHA256-310000";
         if (request.BaseRevision is not null && request.BaseRevision.Value != currentRevision)
         {
+            var isRetryOfPreviousSuccess = request.BaseRevision.Value + 1 == currentRevision
+                && currentCiphertext == request.Ciphertext
+                && currentNonce == request.Nonce
+                && currentSalt == request.Salt
+                && currentAlgorithm == requestedAlgorithm
+                && currentKdf == requestedKdf;
+            if (isRetryOfPreviousSuccess)
+            {
+                await transaction.CommitAsync();
+                return Results.Ok(new { revision = currentRevision, idempotent = true });
+            }
             await transaction.RollbackAsync();
             return Results.Conflict(new { code = "stale_vault_revision", expected = request.BaseRevision, actual = currentRevision });
         }
@@ -172,8 +204,8 @@ app.MapPut("/v1/vault/snapshot", async (HttpRequest http, VaultSnapshotRequest r
         upsert.Parameters.AddWithValue(request.Ciphertext);
         upsert.Parameters.AddWithValue(request.Nonce);
         upsert.Parameters.AddWithValue(request.Salt);
-        upsert.Parameters.AddWithValue(request.Algorithm ?? "AES-GCM");
-        upsert.Parameters.AddWithValue(request.Kdf ?? "PBKDF2-SHA256-310000");
+        upsert.Parameters.AddWithValue(requestedAlgorithm);
+        upsert.Parameters.AddWithValue(requestedKdf);
         await upsert.ExecuteNonQueryAsync();
         await transaction.CommitAsync();
         return Results.Ok(new { revision = nextRevision });

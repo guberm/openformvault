@@ -145,7 +145,7 @@ try {
     ids: [...document.querySelectorAll('[id]')].map(e => e.id),
     hasVaultSearch: !!document.querySelector('#vault-search'),
     hasSettingsPanel: !!document.querySelector('#settings-panel'),
-    hasServerSettings: document.body.innerText.includes('Server settings')
+    hasServerSettings: document.body.innerText.includes('Server')
   }))()`);
   const requiredIds = ['auth', 'username', 'password', 'login', 'register', 'vault', 'vault-search', 'settings-panel', 'items'];
   const missingIds = requiredIds.filter(id => !popup.ids.includes(id));
@@ -157,6 +157,8 @@ try {
       document.querySelector('#server-url').value = ${jsString(serverUrl)};
       document.querySelector('#username').value = ${jsString(username)};
       document.querySelector('#password').value = ${jsString(password)};
+      document.querySelector('#register').click();
+      document.querySelector('#confirm-password').value = ${jsString(password)};
       document.querySelector('#register').click();
       return true;
     })()`);

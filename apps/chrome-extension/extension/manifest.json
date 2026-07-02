@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "OpenFormVault",
-  "version": "0.1.0.4",
+  "version": "0.1.0.5",
   "description": "Local-first zero-knowledge password vault and form filler.",
   "action": { "default_popup": "popup.html" },
   "permissions": ["storage", "alarms", "activeTab", "scripting"],

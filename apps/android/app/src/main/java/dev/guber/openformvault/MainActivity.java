@@ -1,14 +1,20 @@
 package dev.guber.openformvault;
 
 import android.app.Activity;
+import android.content.ComponentName;
+import android.content.Intent;
+import android.provider.Settings;
 import android.os.Bundle;
 import android.text.InputType;
 import android.graphics.Color;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -39,13 +45,20 @@ public class MainActivity extends Activity {
 
     private LinearLayout root;
     private TextView status;
+    private TextView authTitle;
     private EditText serverUrlInput;
     private EditText usernameInput;
     private EditText passwordInput;
+    private EditText confirmPasswordInput;
+    private CheckBox showAuthPasswords;
+    private Button loginButton;
+    private Button createAccountButton;
+    private Button backToLoginButton;
     private EditText titleInput;
     private EditText urlInput;
     private EditText loginUsernameInput;
     private EditText loginPasswordInput;
+    private EditText searchInput;
     private EditText otpSecretInput;
     private EditText notesInput;
     private EditText passkeyRpIdInput;
@@ -55,6 +68,8 @@ public class MainActivity extends Activity {
     private LinearLayout vaultGroup;
     private LinearLayout formGroup;
     private LinearLayout settingsGroup;
+    private Spinner themeModeInput;
+    private boolean registerMode = false;
 
     private String token = "";
     private String masterPassword = "";
@@ -79,7 +94,7 @@ public class MainActivity extends Activity {
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(32, 48, 32, 32);
-        root.setBackgroundColor(Color.rgb(247, 248, 251));
+        applyTheme(getPreferences(MODE_PRIVATE).getString("themeMode", "System"));
         scroll.addView(root);
 
         TextView title = label("OpenFormVault", 24);
@@ -91,28 +106,48 @@ public class MainActivity extends Activity {
         serverUrlInput = input("Server URL");
         usernameInput = input("Username");
         passwordInput = input("Master password");
+        confirmPasswordInput = input("Confirm master password");
         passwordInput.setInputType(0x00000081); // TYPE_CLASS_TEXT | TYPE_TEXT_VARIATION_PASSWORD
+        confirmPasswordInput.setInputType(0x00000081);
+        showAuthPasswords = new CheckBox(this);
+        showAuthPasswords.setText("👁 Show password");
+        showAuthPasswords.setOnCheckedChangeListener((button, checked) -> setAuthPasswordVisibility(checked));
 
         root.addView(title);
         root.addView(subtitle);
         root.addView(status);
 
         authGroup = group();
-        authGroup.addView(label("Sign in", 20));
+        authTitle = label("Sign in", 20);
+        authGroup.addView(authTitle);
+        authGroup.addView(label("Server", 14));
+        authGroup.addView(serverUrlInput);
         authGroup.addView(usernameInput);
         authGroup.addView(passwordInput);
-        authGroup.addView(button("Log in", v -> authenticate(false)));
-        authGroup.addView(button("Create account", v -> authenticate(true)));
+        authGroup.addView(confirmPasswordInput);
+        authGroup.addView(showAuthPasswords);
+        LinearLayout authActions = group();
+        authActions.setOrientation(LinearLayout.HORIZONTAL);
+        loginButton = button("Log in", v -> authenticate(false));
+        createAccountButton = button("Create account", v -> { if (registerMode) authenticate(true); else showRegister(); });
+        backToLoginButton = button("Back to login", v -> showLogin());
+        authActions.addView(loginButton);
+        authActions.addView(createAccountButton);
+        authActions.addView(backToLoginButton);
+        authGroup.addView(authActions);
         root.addView(authGroup);
 
         vaultGroup = group();
         vaultGroup.addView(label("Vault", 20));
         LinearLayout vaultActions = group();
         vaultActions.setOrientation(LinearLayout.HORIZONTAL);
-        vaultActions.addView(button("+ Add login", v -> { clearForm(); showForm(); }));
-        vaultActions.addView(button("Settings", v -> toggleSettings()));
-        vaultActions.addView(button("Lock", v -> { masterPassword = ""; token = ""; items.clear(); renderItems(); setStatus("Locked."); showAuth(); }));
+        vaultActions.addView(button("+ Add", v -> { clearForm(); showForm(); }));
+        vaultActions.addView(button("⚙", v -> toggleSettings()));
         vaultGroup.addView(vaultActions);
+        searchInput = input("Search vault");
+        searchInput.setSingleLine(true);
+        searchInput.setOnEditorActionListener((v, actionId, event) -> { renderItems(); return false; });
+        vaultGroup.addView(searchInput);
         list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
         vaultGroup.addView(list);
@@ -133,6 +168,7 @@ public class MainActivity extends Activity {
         formGroup.addView(urlInput);
         formGroup.addView(loginUsernameInput);
         formGroup.addView(loginPasswordInput);
+        formGroup.addView(button("Generate password", v -> generatePassword()));
         formGroup.addView(otpSecretInput);
         formGroup.addView(notesInput);
         formGroup.addView(passkeyRpIdInput);
@@ -143,7 +179,18 @@ public class MainActivity extends Activity {
 
         settingsGroup = group();
         settingsGroup.addView(label("Settings", 20));
-        settingsGroup.addView(serverUrlInput);
+        settingsGroup.addView(label("Theme", 14));
+        themeModeInput = new Spinner(this);
+        ArrayAdapter<String> themeAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, new String[] { "System", "Light", "Dark" });
+        themeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        themeModeInput.setAdapter(themeAdapter);
+        String savedTheme = getPreferences(MODE_PRIVATE).getString("themeMode", "System");
+        themeModeInput.setSelection("Dark".equals(savedTheme) ? 2 : ("Light".equals(savedTheme) ? 1 : 0));
+        settingsGroup.addView(themeModeInput);
+        settingsGroup.addView(button("Apply theme", v -> setThemeMode()));
+        settingsGroup.addView(button("Security report", v -> showSecurityReport()));
+        settingsGroup.addView(button("Android Autofill settings", v -> openAutofillSettings()));
+        settingsGroup.addView(button("Lock", v -> { masterPassword = ""; token = ""; items.clear(); renderItems(); setStatus("Locked."); showLogin(); }));
         settingsGroup.addView(button("Test connection", v -> runAsync(() -> {
             JSONObject health = request("GET", "/health", null, false);
             setStatus(health.optString("product", "OpenFormVault") + " is online.");
@@ -154,7 +201,7 @@ public class MainActivity extends Activity {
 
         setContentView(scroll);
         renderItems();
-        showAuth();
+        showLogin();
     }
 
     private LinearLayout group() {
@@ -169,6 +216,34 @@ public class MainActivity extends Activity {
         vaultGroup.setVisibility(View.GONE);
         formGroup.setVisibility(View.GONE);
         settingsGroup.setVisibility(View.GONE);
+    }
+
+    private void showLogin() {
+        registerMode = false;
+        authTitle.setText("Sign in");
+        confirmPasswordInput.setVisibility(View.GONE);
+        loginButton.setVisibility(View.VISIBLE);
+        backToLoginButton.setVisibility(View.GONE);
+        setAuthPasswordVisibility(showAuthPasswords.isChecked());
+        showAuth();
+    }
+
+    private void showRegister() {
+        registerMode = true;
+        authTitle.setText("Create account");
+        confirmPasswordInput.setVisibility(View.VISIBLE);
+        loginButton.setVisibility(View.GONE);
+        backToLoginButton.setVisibility(View.VISIBLE);
+        setAuthPasswordVisibility(showAuthPasswords.isChecked());
+        showAuth();
+    }
+
+    private void setAuthPasswordVisibility(boolean visible) {
+        int type = InputType.TYPE_CLASS_TEXT | (visible ? InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD : InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        passwordInput.setInputType(type);
+        confirmPasswordInput.setInputType(type);
+        passwordInput.setSelection(passwordInput.length());
+        confirmPasswordInput.setSelection(confirmPasswordInput.length());
     }
 
     private void showVault() {
@@ -214,11 +289,21 @@ public class MainActivity extends Activity {
         return input;
     }
 
+    private void openAutofillSettings() {
+        try {
+            Intent intent = new Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE);
+            intent.putExtra("android.provider.extra.AUTOFILL_SERVICE_COMPONENT_NAME", new ComponentName(this, OpenFormVaultAutofillService.class).flattenToString());
+            startActivity(intent);
+        } catch (Exception ex) {
+            try { startActivity(new Intent(Settings.ACTION_SETTINGS)); } catch (Exception ignored) {}
+        }
+    }
+
     private Button button(String text, View.OnClickListener listener) {
         Button button = new Button(this);
         button.setText(text);
         button.setOnClickListener(listener);
-        if ("Log in".equals(text) || "+ Add login".equals(text) || "Save".equals(text) || "Create account".equals(text)) {
+        if ("Log in".equals(text) || "+ Add".equals(text) || "Save".equals(text) || "Create account".equals(text)) {
             button.setTextColor(Color.WHITE);
             button.setBackgroundColor(Color.rgb(37, 99, 235));
         } else {
@@ -228,10 +313,44 @@ public class MainActivity extends Activity {
         return button;
     }
 
+    private void generatePassword() {
+        String alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()-_=+";
+        StringBuilder password = new StringBuilder();
+        for (int i = 0; i < 24; i++) password.append(alphabet.charAt(RANDOM.nextInt(alphabet.length())));
+        loginPasswordInput.setText(password.toString());
+        setStatus("Generated a strong password.");
+    }
+
+    private void setThemeMode() {
+        String mode = themeModeInput.getSelectedItem().toString();
+        getPreferences(MODE_PRIVATE).edit().putString("themeMode", mode).apply();
+        applyTheme(mode);
+        setStatus("Theme set to " + mode + ".");
+    }
+
+    private void applyTheme(String mode) {
+        boolean dark = "Dark".equals(mode);
+        if (root != null) root.setBackgroundColor(dark ? Color.rgb(15, 23, 42) : Color.rgb(247, 248, 251));
+        if (status != null) status.setTextColor(dark ? Color.rgb(226, 232, 240) : Color.rgb(71, 85, 105));
+    }
+
+    private void showSecurityReport() {
+        int weak = 0, missingOtp = 0, httpOnly = 0, duplicates = 0;
+        for (int i = 0; i < items.size(); i++) {
+            LoginItem item = items.get(i);
+            if (item.password.length() < 12) weak++;
+            if (item.otpSecret.isEmpty()) missingOtp++;
+            if (item.url.toLowerCase().startsWith("http://")) httpOnly++;
+            for (int j = i + 1; j < items.size(); j++) if (!item.password.isEmpty() && item.password.equals(items.get(j).password)) duplicates++;
+        }
+        setStatus("Security: " + weak + " weak, " + duplicates + " reused, " + httpOnly + " HTTP-only, " + missingOtp + " missing OTP.");
+    }
+
     private void authenticate(boolean register) {
         runAsync(() -> {
             masterPassword = passwordInput.getText().toString();
             username = usernameInput.getText().toString().trim();
+            if (register && !masterPassword.equals(confirmPasswordInput.getText().toString())) throw new Exception("Passwords do not match.");
             JSONObject body = new JSONObject().put("username", username).put("password", masterPassword);
             JSONObject response = request("POST", register ? "/v1/users/register" : "/v1/session", body, false);
             token = response.getString("token");
@@ -288,8 +407,13 @@ public class MainActivity extends Activity {
 
     private void renderItems() {
         list.removeAllViews();
-        if (items.isEmpty()) { list.addView(label("No saved logins.", 15)); return; }
+        String q = searchInput == null ? "" : searchInput.getText().toString().trim().toLowerCase();
+        if (items.isEmpty()) { list.addView(label("No logins yet. Tap + Add to add one.", 15)); return; }
+        int shown = 0;
         for (LoginItem item : new ArrayList<>(items)) {
+            String haystack = (item.title + " " + item.url + " " + item.username + " " + item.notes).toLowerCase();
+            if (!q.isEmpty() && !haystack.contains(q)) continue;
+            shown++;
             TextView row = label(item.title + "\n" + item.url + "\n" + item.username + (item.otpSecret.isEmpty() ? "" : "\nOTP enabled") + (item.passkeyCredentialId.isEmpty() ? "" : "\nPasskey: " + item.passkeyRpId), 15);
             Button view = button((revealedPasswords.contains(item.id) ? "Hide " : "View ") + item.title, v -> { if (revealedPasswords.contains(item.id)) revealedPasswords.remove(item.id); else revealedPasswords.add(item.id); renderItems(); });
             if (revealedPasswords.contains(item.id)) list.addView(label("Password: " + item.password, 14));
@@ -300,6 +424,7 @@ public class MainActivity extends Activity {
             list.addView(edit);
             list.addView(delete);
         }
+        if (shown == 0) list.addView(label("No matching logins.", 15));
     }
 
     private void pullRemote() throws Exception {
@@ -308,6 +433,7 @@ public class MainActivity extends Activity {
         revision = snapshot.getLong("revision");
         getPreferences(MODE_PRIVATE).edit().putLong("revision", revision).apply();
         saveEncryptedSnapshot(snapshot);
+        LocalAutofillStore.save(this, vaultJson());
         renderOnUi();
         setStatus("Pulled revision " + revision + ".");
         runOnUiThread(this::showVault);
@@ -323,7 +449,7 @@ public class MainActivity extends Activity {
         setStatus("Pushed revision " + revision + ".");
     }
 
-    private void saveLocalVault() throws Exception { saveEncryptedSnapshot(encryptVault()); }
+    private void saveLocalVault() throws Exception { saveEncryptedSnapshot(encryptVault()); LocalAutofillStore.save(this, vaultJson()); }
 
     private void saveEncryptedSnapshot(JSONObject encrypted) {
         getPreferences(MODE_PRIVATE).edit()

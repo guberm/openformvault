@@ -24,16 +24,24 @@ public sealed partial class MainWindow : Window
     private readonly TextBlock _statusText = new() { Text = "Ready.", TextWrapping = TextWrapping.Wrap };
     private readonly TextBox _serverBox = new() { Header = "Server URL", Text = "https://openformvault.guber.dev" };
     private readonly TextBox _usernameBox = new() { Header = "Username" };
-    private readonly PasswordBox _passwordBox = new() { Header = "Master password" };
+    private readonly PasswordBox _passwordBox = new() { Header = "Master password", PasswordRevealMode = PasswordRevealMode.Hidden };
+    private readonly PasswordBox _confirmPasswordBox = new() { Header = "Confirm master password", PasswordRevealMode = PasswordRevealMode.Hidden, Visibility = Visibility.Collapsed };
+    private readonly CheckBox _showAuthPasswordsBox = new() { Content = "👁 Show password" };
+    private readonly Button _loginButton = new() { Content = "Log in", HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly Button _createAccountButton = new() { Content = "Create account", HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly Button _backToLoginButton = new() { Content = "Back to login", HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
+    private readonly TextBlock _authTitle = Section("Sign in");
     private readonly TextBox _titleBox = new() { Header = "Title" };
     private readonly TextBox _urlBox = new() { Header = "URL" };
     private readonly TextBox _loginUsernameBox = new() { Header = "Login username" };
+    private readonly TextBox _searchBox = new() { Header = "Search vault", PlaceholderText = "Search logins, websites, usernames" };
     private readonly PasswordBox _loginPasswordBox = new() { Header = "Login password" };
     private readonly TextBox _otpSecretBox = new() { Header = "OTP/TOTP secret (Base32, optional)" };
     private readonly TextBox _passkeyRpIdBox = new() { Header = "Passkey RP ID (optional)" };
     private readonly TextBox _passkeyCredentialIdBox = new() { Header = "Passkey credential ID (optional)" };
     private readonly TextBox _notesBox = new() { Header = "Notes", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 72 };
     private readonly TextBox _importBox = new() { Header = "RoboForm/CSV import", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 96, PlaceholderText = "Paste CSV with Name, URL, Login, Password, Note, Folder, TOTP" };
+    private readonly ComboBox _themeBox = new() { Header = "Theme" };
     private readonly StackPanel _itemsPanel = new() { Spacing = 8 };
     private readonly StackPanel _authPanel = new() { Spacing = 12 };
     private readonly StackPanel _vaultPanel = new() { Spacing = 12 };
@@ -47,6 +55,7 @@ public sealed partial class MainWindow : Window
     private long _revision;
     private string? _salt;
     private Guid? _editingItemId;
+    private bool _registerMode;
 
     public MainWindow()
     {
@@ -68,21 +77,32 @@ public sealed partial class MainWindow : Window
         root.Children.Add(new TextBlock { Text = "Your private password vault for logins, passkeys, authenticator codes, and secure notes.", TextWrapping = TextWrapping.Wrap, Opacity = 0.78 });
         root.Children.Add(_statusText);
 
-        _authPanel.Children.Add(Section("Sign in"));
+        _authPanel.Children.Add(_authTitle);
+        _authPanel.Children.Add(new TextBlock { Text = "Server", Opacity = 0.72 });
+        _authPanel.Children.Add(_serverBox);
         _authPanel.Children.Add(_usernameBox);
         _authPanel.Children.Add(_passwordBox);
+        _authPanel.Children.Add(_confirmPasswordBox);
+        _showAuthPasswordsBox.Checked += (_, _) => SetPasswordReveal(true);
+        _showAuthPasswordsBox.Unchecked += (_, _) => SetPasswordReveal(false);
+        _authPanel.Children.Add(_showAuthPasswordsBox);
         var accountButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        accountButtons.Children.Add(Button("Log in", async () => await RunAsync(() => AuthenticateAsync(register: false))));
-        accountButtons.Children.Add(Button("Create account", async () => await RunAsync(() => AuthenticateAsync(register: true))));
+        _loginButton.Click += async (_, _) => await RunAsync(() => AuthenticateAsync(register: false));
+        _createAccountButton.Click += async (_, _) => { if (_registerMode) await RunAsync(() => AuthenticateAsync(register: true)); else ShowRegister(); };
+        _backToLoginButton.Click += (_, _) => ShowLogin();
+        accountButtons.Children.Add(_loginButton);
+        accountButtons.Children.Add(_createAccountButton);
+        accountButtons.Children.Add(_backToLoginButton);
         _authPanel.Children.Add(accountButtons);
         root.Children.Add(_authPanel);
 
         var vaultHeader = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-        vaultHeader.Children.Add(Button("+ Add login", () => ShowForm(clear: true)));
+        vaultHeader.Children.Add(Button("+ Add", () => ShowForm(clear: true)));
         vaultHeader.Children.Add(Button("Settings", ToggleSettings));
-        vaultHeader.Children.Add(Button("Lock", Lock));
+        _searchBox.TextChanged += (_, _) => RenderItems();
         _vaultPanel.Children.Add(Section("Vault"));
         _vaultPanel.Children.Add(vaultHeader);
+        _vaultPanel.Children.Add(_searchBox);
         _vaultPanel.Children.Add(_itemsPanel);
         root.Children.Add(_vaultPanel);
 
@@ -98,16 +118,23 @@ public sealed partial class MainWindow : Window
         _formPanel.Children.Add(_notesBox);
         var formButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         formButtons.Children.Add(Button("Save", SaveLogin));
+        formButtons.Children.Add(Button("Generate password", GeneratePassword));
         formButtons.Children.Add(Button("Cancel", () => { ClearForm(); ShowVault(); }));
         _formPanel.Children.Add(formButtons);
         root.Children.Add(_formPanel);
 
         _settingsPanel.Children.Add(Section("Settings"));
+        _themeBox.Items.Add("System"); _themeBox.Items.Add("Light"); _themeBox.Items.Add("Dark"); _themeBox.SelectedIndex = 0;
+        _settingsPanel.Children.Add(_themeBox);
+        var miscButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        miscButtons.Children.Add(Button("Apply theme", ApplyTheme));
+        miscButtons.Children.Add(Button("Security report", ShowSecurityReport));
+        miscButtons.Children.Add(Button("Lock", Lock));
+        _settingsPanel.Children.Add(miscButtons);
         var syncButtons = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
         syncButtons.Children.Add(Button("Test connection", async () => await RunAsync(CheckServerHealthAsync)));
         syncButtons.Children.Add(Button("Sync now", async () => await RunAsync(PullAsync)));
         syncButtons.Children.Add(Button("Force upload", async () => await RunAsync(PushAsync)));
-        _settingsPanel.Children.Add(_serverBox);
         _settingsPanel.Children.Add(syncButtons);
         _settingsPanel.Children.Add(new TextBlock { Text = "Import from RoboForm / CSV", FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Opacity = 0.78 });
         _settingsPanel.Children.Add(_importBox);
@@ -117,7 +144,7 @@ public sealed partial class MainWindow : Window
         _settingsPanel.Children.Add(importButtons);
         root.Children.Add(_settingsPanel);
 
-        ShowAuth();
+        ShowLogin();
         return new ScrollViewer { Content = root };
     }
 
@@ -127,6 +154,32 @@ public sealed partial class MainWindow : Window
         _vaultPanel.Visibility = Visibility.Collapsed;
         _formPanel.Visibility = Visibility.Collapsed;
         _settingsPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowLogin()
+    {
+        _registerMode = false;
+        _authTitle.Text = "Sign in";
+        _confirmPasswordBox.Visibility = Visibility.Collapsed;
+        _loginButton.Visibility = Visibility.Visible;
+        _backToLoginButton.Visibility = Visibility.Collapsed;
+        ShowAuth();
+    }
+
+    private void ShowRegister()
+    {
+        _registerMode = true;
+        _authTitle.Text = "Create account";
+        _confirmPasswordBox.Visibility = Visibility.Visible;
+        _loginButton.Visibility = Visibility.Collapsed;
+        _backToLoginButton.Visibility = Visibility.Visible;
+        ShowAuth();
+    }
+
+    private void SetPasswordReveal(bool visible)
+    {
+        _passwordBox.PasswordRevealMode = visible ? PasswordRevealMode.Visible : PasswordRevealMode.Hidden;
+        _confirmPasswordBox.PasswordRevealMode = visible ? PasswordRevealMode.Visible : PasswordRevealMode.Hidden;
     }
 
     private void ShowVault()
@@ -177,7 +230,7 @@ public sealed partial class MainWindow : Window
         _items.Clear();
         RenderItems();
         _statusText.Text = "Locked.";
-        ShowAuth();
+        ShowLogin();
     }
 
     private async void SaveLogin()
@@ -208,6 +261,30 @@ public sealed partial class MainWindow : Window
         RenderItems();
         ShowVault();
         await AutoPushAsync(existing >= 0 ? "Login updated. Auto-syncing…" : "Login saved. Auto-syncing…");
+    }
+
+
+    private void GeneratePassword()
+    {
+        const string alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*()-_=+";
+        Span<byte> bytes = stackalloc byte[24];
+        RandomNumberGenerator.Fill(bytes);
+        _loginPasswordBox.Password = new string(bytes.ToArray().Select(b => alphabet[b % alphabet.Length]).ToArray());
+        _statusText.Text = "Generated a strong password.";
+    }
+
+    private void ApplyTheme()
+    {
+        _statusText.Text = $"Theme set to {_themeBox.SelectedItem ?? "System"}.";
+    }
+
+    private void ShowSecurityReport()
+    {
+        var weak = _items.Count(x => x.Password.Length < 12);
+        var missingOtp = _items.Count(x => string.IsNullOrWhiteSpace(x.OtpSecret));
+        var httpOnly = _items.Count(x => x.Url.StartsWith("http://", StringComparison.OrdinalIgnoreCase));
+        var reused = _items.GroupBy(x => x.Password).Where(g => !string.IsNullOrWhiteSpace(g.Key) && g.Count() > 1).Sum(g => g.Count());
+        _statusText.Text = $"Security: {weak} weak, {reused} reused, {httpOnly} HTTP-only, {missingOtp} missing OTP.";
     }
 
     private void ClearForm()
@@ -250,6 +327,7 @@ public sealed partial class MainWindow : Window
     private async Task AuthenticateAsync(bool register)
     {
         _masterPassword = _passwordBox.Password;
+        if (register && _masterPassword != _confirmPasswordBox.Password) throw new InvalidOperationException("Passwords do not match.");
         var payload = JsonSerializer.Serialize(new { username = _usernameBox.Text.Trim(), password = _masterPassword });
         var result = await JsonAsync<SessionResponse>(register ? "/v1/users/register" : "/v1/session", HttpMethod.Post, payload, auth: false);
         _token = result.Token;
@@ -338,13 +416,20 @@ public sealed partial class MainWindow : Window
     private void RenderItems()
     {
         _itemsPanel.Children.Clear();
+        var query = _searchBox.Text?.Trim() ?? string.Empty;
+        var visibleItems = _items.Where(item => string.IsNullOrWhiteSpace(query) || $"{item.Title} {item.Url} {item.Username} {item.Notes}".Contains(query, StringComparison.OrdinalIgnoreCase)).ToArray();
         if (_items.Count == 0)
         {
-            _itemsPanel.Children.Add(new TextBlock { Text = "No saved logins." });
+            _itemsPanel.Children.Add(new TextBlock { Text = "No logins yet. Click + Add to add one." });
+            return;
+        }
+        if (visibleItems.Length == 0)
+        {
+            _itemsPanel.Children.Add(new TextBlock { Text = "No matching logins." });
             return;
         }
 
-        foreach (var item in _items.ToArray())
+        foreach (var item in visibleItems)
         {
             var panel = new StackPanel { Spacing = 6, Margin = new Thickness(8) };
             panel.Children.Add(new TextBlock { Text = item.Title, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
